@@ -618,9 +618,9 @@ export default function App() {
           </button>
         </div>
       </nav>
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%)' }}>
         <DateSystemeBanner onClotureComplete={() => window.location.reload()} />
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '25px 30px' }}>
           {view === "dashboard" && <DashboardView setView={setView} />}
           {view === "patients" && <PatientsView currentUser={user} />}
           {view === "labo" && <LaboratoireView />}
@@ -665,9 +665,42 @@ function MenuBtn({ label, id, active, onClick, color, expanded }: any) {
   );
 }
 
-const layoutStyle: CSSProperties = { display: 'flex', height: '100vh', backgroundColor: '#f4f7f6' };
+const layoutStyle: CSSProperties = {
+  display: 'flex',
+  height: '100vh',
+  backgroundColor: '#e9ecef',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+};
 const sidebarStyle: CSSProperties = { color: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 1000, boxShadow: '4px 0 20px rgba(102, 126, 234, 0.15)' };
-const brandBoxStyle: CSSProperties = { minHeight: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid #34495e', overflow: 'hidden' };
-const menuContainerStyle: CSSProperties = { display: 'flex', flexDirection: 'column', padding: '10px', flex: 1, overflowY: 'auto', overflowX: 'hidden' };
+const brandBoxStyle: CSSProperties = {
+  minHeight: '80px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+  overflow: 'hidden',
+  padding: '15px 10px'
+};
+const menuContainerStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  padding: '15px 10px',
+  flex: 1,
+  overflowY: 'auto',
+  overflowX: 'hidden',
+  gap: '2px'
+};
 const sectionTitleStyle: CSSProperties = { fontSize: '0.7rem', color: '#7f8c8d', letterSpacing: '1px', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', transition: 'all 0.3s' };
-const navBtnStyle: CSSProperties = { padding: '12px 15px', textAlign: 'left', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9rem', marginBottom: '2px', transition: '0.2s', height: '45px' };
+const navBtnStyle: CSSProperties = {
+  padding: '14px 16px',
+  textAlign: 'left',
+  border: 'none',
+  borderRadius: '8px',
+  cursor: 'pointer',
+  fontSize: '0.9rem',
+  marginBottom: '0',
+  transition: 'all 0.2s ease',
+  height: '48px',
+  fontWeight: '500'
+};
