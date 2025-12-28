@@ -1,0 +1,1484 @@
+
+> CREATE TABLE `admissions` (
+    `id` int(11) NOT NULL,
+    `patient_id` int(11) DEFAULT NULL,
+    `lit_id` int(11) DEFAULT NULL,
+    `date_entree` timestamp NOT NULL DEFAULT current_timestamp(),
+    `date_sortie` date DEFAULT NULL,
+    `nb_jours` int(11) DEFAULT 1,
+    `statut` enum('en_cours','termine') DEFAULT 'en_cours'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `admissions`
+  --
+  
+  INSERT INTO `admissions` (`id`, `patient_id`, `lit_id`, `date_entree`, `date_sortie`, `nb_jours`, `statut`) VALUES
+  (1, 1, 3, '2025-12-22 12:14:35', NULL, 2, 'termine'),
+  (2, 1, 5, '2025-12-05 00:00:00', NULL, 2, 'termine'),
+  (3, 1, 2, '2025-12-21 13:14:40', '2025-12-22', 2, 'termine'),
+  (4, 2, 4, '2025-12-22 00:00:00', NULL, 2, 'en_cours'),
+  (5, 3, 6, '2025-12-22 00:00:00', NULL, 2, 'en_cours'),
+  (6, 4, 5, '2025-12-22 00:00:00', '2025-12-25', 4, 'termine'),
+  (7, 1, 3, '2025-12-22 00:00:00', '2025-12-25', 10, 'termine');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `app_menus`
+  --
+  
+> CREATE TABLE `app_menus` (
+    `id` int(11) NOT NULL,
+    `code` varchar(50) NOT NULL,
+    `libelle` varchar(200) NOT NULL,
+    `categorie` varchar(100) DEFAULT NULL,
+    `icone` varchar(50) DEFAULT NULL,
+    `ordre` int(11) DEFAULT 0,
+    `actif` tinyint(1) DEFAULT 1
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Menus et fonctionnalités disponibles dans l application';
+  
+  --
+  -- Déchargement des données de la table `app_menus`
+  --
+  
+  INSERT INTO `app_menus` (`id`, `code`, `libelle`, `categorie`, `icone`, `ordre`, `actif`) VALUES
+  (1, 'dashboard', 'Tableau de bord', 'Général', '🏠', 1, 1),
+  (2, 'patients', 'Patients', 'Médical', '👥', 10, 1),
+  (3, 'consultation', 'Consultation', 'Médical', '🩺', 11, 1),
+  (4, 'laboratoire', 'Laboratoire', 'Médical', '🔬', 12, 1),
+  (5, 'infirmier', 'Infirmier', 'Médical', '💉', 13, 1),
+  (6, 'hospitalisation', 'Hospitalisation', 'Médical', '🏨', 14, 1),
+  (7, 'assurances', 'Assurances', 'Administration', '🛡️', 20, 1),
+  (8, 'caisse', 'Caisse & Factures', 'Administration', '💰', 21, 1),
+  (9, 'stock', 'Gestion Stock', 'Logistique', '📦', 30, 1),
+  (10, 'parametres', 'Paramètres', 'Configuration', '⚙️', 40, 1);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `app_parametres_app`
+  --
+  
+> CREATE TABLE `app_parametres_app` (
+    `id` int(11) NOT NULL,
+    `nom_application` varchar(200) DEFAULT 'FOCOLARI',
+    `logo_app_url` varchar(255) DEFAULT NULL,
+    `couleur_primaire` varchar(7) DEFAULT '#3498db',
+    `couleur_secondaire` varchar(7) DEFAULT '#2c3e50',
+    `format_date` varchar(20) DEFAULT 'DD/MM/YYYY',
+    `devise` varchar(10) DEFAULT 'FCFA',
+    `langue` varchar(10) DEFAULT 'fr',
+    `timezone` varchar(50) DEFAULT 'Africa/Abidjan',
+    `activer_email` tinyint(1) DEFAULT 0,
+    `activer_sms` tinyint(1) DEFAULT 0,
+    `maintenance_mode` tinyint(1) DEFAULT 0,
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    `date_systeme_actuelle` date DEFAULT NULL,
+    `derniere_cloture` date DEFAULT NULL,
+    `alerte_date_diff` tinyint(1) DEFAULT 1,
+    `jours_decloture_max` int(11) DEFAULT 7,
+    `adresse` text DEFAULT NULL,
+    `telephone` varchar(100) DEFAULT NULL,
+    `email` varchar(100) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Paramètres globaux de l application';
+  
+  --
+  -- Déchargement des données de la table `app_parametres_app`
+  --
+  
+  INSERT INTO `app_parametres_app` (`id`, `nom_application`, `logo_app_url`, `couleur_primaire`, `couleur_secondaire`, `format_date`, `devise`, `langue`, `timezone`, `activer_email`, `activer_sms`, `maintenance_mode`, `updated_at`, `date_systeme_actuelle`, `derniere_cloture`, `alerte_date_diff`, `jours_decloture_max`, `adresse`, `telephone`, `email`) VALUES
+  (1, 'FOCOLARI', NULL, '#000000', '#ffffff', 'DD/MM/YYYY', 'FCFA', 'fr', 'Africa/Abidjan', 0, 0, 0, '2025-12-26 00:35:13', '2025-12-26', '2025-12-25', 1, 7, NULL, NULL, NULL);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `app_parametres_entreprise`
+  --
+  
+> CREATE TABLE `app_parametres_entreprise` (
+    `id` int(11) NOT NULL,
+    `nom_entreprise` varchar(200) NOT NULL,
+    `sigle` varchar(50) DEFAULT NULL,
+    `adresse` text DEFAULT NULL,
+    `ville` varchar(100) DEFAULT NULL,
+    `pays` varchar(100) DEFAULT 'Côte d''Ivoire',
+    `telephone` varchar(50) DEFAULT NULL,
+    `telephone2` varchar(50) DEFAULT NULL,
+    `email` varchar(200) DEFAULT NULL,
+    `site_web` varchar(200) DEFAULT NULL,
+    `nif` varchar(100) DEFAULT NULL,
+    `rccm` varchar(100) DEFAULT NULL,
+    `registre_commerce` varchar(100) DEFAULT NULL,
+    `logo_url` varchar(255) DEFAULT NULL,
+    `slogan` text DEFAULT NULL,
+    `description` text DEFAULT NULL,
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Informations de l entreprise pour documents officiels';
+  
+  --
+  -- Déchargement des données de la table `app_parametres_entreprise`
+  --
+  
+  INSERT INTO `app_parametres_entreprise` (`id`, `nom_entreprise`, `sigle`, `adresse`, `ville`, `pays`, `telephone`, `telephone2`, `email`, `site_web`, `nif`, `rccm`, `registre_commerce`, `logo_url`, `slogan`, `description`, `updated_at`) VALUES
+  (1, 'Centre Médical FOCOLARI', NULL, 'man', 'MAN', 'Côte d\'Ivoire', '+225 01 01 01 01', NULL, 'contact@focolari.com', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2025-12-27 05:53:08');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `app_roles`
+  --
+  
+> CREATE TABLE `app_roles` (
+    `id` int(11) NOT NULL,
+    `nom` varchar(100) NOT NULL,
+    `description` text DEFAULT NULL,
+    `couleur` varchar(7) DEFAULT '#3498db',
+    `actif` tinyint(1) DEFAULT 1,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    `can_delete` tinyint(1) DEFAULT 1,
+    `can_edit` tinyint(1) DEFAULT 1,
+    `can_print` tinyint(1) DEFAULT 1
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Rôles système (Admin, Médecin, Infirmier, etc.)';
+  
+  --
+  -- Déchargement des données de la table `app_roles`
+  --
+  
+  INSERT INTO `app_roles` (`id`, `nom`, `description`, `couleur`, `actif`, `created_at`, `updated_at`, `can_delete`, `can_edit`, `can_print`) VALUES
+  (1, 'Administrateur', 'Accès complet à toutes les fonctionnalités', '#e74c3c', 1, '2025-12-24 00:00:41', '2025-12-27 04:31:27', 1, 1, 1),
+  (2, 'Médecin', 'Accès aux consultations et dossiers patients', '#3498db', 1, '2025-12-24 00:00:41', '2025-12-24 00:00:41', 1, 1, 1),
+  (3, 'Infirmier', 'Accès aux soins infirmiers et hospitalisation', '#2ecc71', 1, '2025-12-24 00:00:41', '2025-12-24 00:00:41', 1, 1, 1),
+  (4, 'Laborantin', 'Accès au laboratoire et analyses', '#9b59b6', 1, '2025-12-24 00:00:41', '2025-12-24 00:00:41', 1, 1, 1),
+  (5, 'Caissier', 'Accès à la caisse et facturation', '#f39c12', 1, '2025-12-24 00:00:41', '2025-12-27 04:31:32', 0, 0, 0),
+  (6, 'Pharmacien', 'Accès à la gestion du stock pharmaceutique', '#1abc9c', 1, '2025-12-24 00:00:41', '2025-12-24 00:00:41', 1, 1, 1),
+  (7, 'Réceptionniste', 'Accès à l accueil et gestion des rendez-vous', '#95a5a6', 1, '2025-12-24 00:00:41', '2025-12-24 00:00:41', 1, 1, 1),
+  (11, 'Gestionnaire', 'Gère les stocks et les commandes', '#e67e22', 1, '2025-12-27 04:10:46', '2025-12-27 04:10:46', 0, 1, 1);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `app_role_permissions`
+  --
+  
+> CREATE TABLE `app_role_permissions` (
+    `id` int(11) NOT NULL,
+    `role_id` int(11) NOT NULL,
+    `menu_id` int(11) NOT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Attribution des permissions aux rôles';
+  
+  --
+  -- Déchargement des données de la table `app_role_permissions`
+  --
+  
+  INSERT INTO `app_role_permissions` (`id`, `role_id`, `menu_id`, `created_at`) VALUES
+  (1, 1, 7, '2025-12-24 00:00:41'),
+  (2, 1, 8, '2025-12-24 00:00:41'),
+  (4, 1, 1, '2025-12-24 00:00:41'),
+  (5, 1, 6, '2025-12-24 00:00:41'),
+  (6, 1, 5, '2025-12-24 00:00:41'),
+  (7, 1, 4, '2025-12-24 00:00:41'),
+  (8, 1, 10, '2025-12-24 00:00:41'),
+  (9, 1, 2, '2025-12-24 00:00:41'),
+  (10, 1, 9, '2025-12-24 00:00:41'),
+  (17, 1, 3, '2025-12-24 00:25:51'),
+  (19, 4, 4, '2025-12-25 06:09:40'),
+  (22, 5, 8, '2025-12-27 04:10:53');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `app_utilisateurs`
+  --
+  
+> CREATE TABLE `app_utilisateurs` (
+    `id` int(11) NOT NULL,
+    `nom_complet` varchar(200) NOT NULL,
+    `username` varchar(100) NOT NULL,
+    `email` varchar(200) DEFAULT NULL,
+    `password_hash` varchar(255) NOT NULL,
+    `role_id` int(11) DEFAULT NULL,
+    `actif` tinyint(1) DEFAULT 1,
+    `photo` varchar(255) DEFAULT NULL,
+    `telephone` varchar(50) DEFAULT NULL,
+    `derniere_connexion` datetime DEFAULT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    `personnel_id` int(11) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Utilisateurs du système avec authentification';
+  
+  --
+  -- Déchargement des données de la table `app_utilisateurs`
+  --
+  
+  INSERT INTO `app_utilisateurs` (`id`, `nom_complet`, `username`, `email`, `password_hash`, `role_id`, `actif`, `photo`, `telephone`, `derniere_connexion`, `created_at`, `updated_at`, `personnel_id`) VALUES
+  (1, 'Administrateur', 'admin', 'admin@focolari.local', 'admin', 1, 1, NULL, NULL, '2025-12-27 07:59:46', '2025-12-24 00:00:41', '2025-12-27 07:59:46', NULL),
+  (3, 'TANOH CEDRIC', 'TN', 'TN@GMAIL.COM', 'MOI', 4, 1, NULL, '+2250172727477', '2025-12-25 06:10:13', '2025-12-25 03:59:49', '2025-12-25 06:10:13', NULL),
+  (10, 'hamed', 'hamed', 'anick@gmail.com', 'mapine', 5, 1, NULL, '', '2025-12-27 04:24:02', '2025-12-27 04:14:19', '2025-12-27 04:24:02', NULL);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `assurances`
+  --
+  
+> CREATE TABLE `assurances` (
+    `id` int(11) NOT NULL,
+    `nom` varchar(100) NOT NULL,
+    `statut` enum('actif','suspendu') DEFAULT 'actif'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `assurances`
+  --
+  
+  INSERT INTO `assurances` (`id`, `nom`, `statut`) VALUES
+  (1, 'CNAM', 'actif'),
+  (2, '', 'actif'),
+  (3, 'MUGEFCI', 'actif'),
+  (4, 'MCI CARE', 'actif');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `caisse_mouvements`
+  --
+  
+> CREATE TABLE `caisse_mouvements` (
+    `id` int(11) NOT NULL,
+    `type` varchar(50) DEFAULT NULL,
+    `montant` double DEFAULT NULL,
+    `date_mouvement` datetime DEFAULT NULL,
+    `motif` text DEFAULT NULL,
+    `user_id` int(11) DEFAULT NULL,
+    `mode_paiement` varchar(50) DEFAULT NULL,
+    `reference` varchar(100) DEFAULT NULL,
+    `autorise_par` varchar(100) DEFAULT NULL,
+    `beneficiaire` varchar(100) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `caisse_mouvements`
+  --
+  
+  INSERT INTO `caisse_mouvements` (`id`, `type`, `montant`, `date_mouvement`, `motif`, `user_id`, `mode_paiement`, `reference`, `autorise_par`, `beneficiaire`) VALUES
+  (1, 'RECOUVREMENT', 2000, '2025-12-26 02:45:55', 'Recouvrement Global : konan konan', 1, 'ORANGE MONEY', '', NULL, NULL),
+  (2, 'RECOUVREMENT', 1000, '2025-12-26 02:49:53', 'Recouvrement : konan konan (REC-20251226-256)', 1, 'ORANGE MONEY', 'REC-20251226-256', NULL, NULL),
+  (3, 'RECOUVREMENT', 1000, '2025-12-26 02:50:50', 'Recouvrement : OUATTARA (CNAM) (REC-20251226-858)', 1, 'ESPECES', 'REC-20251226-858', NULL, NULL),
+  (4, 'RECOUVREMENT', 500, '2025-12-26 02:53:21', 'Recouvrement : kouakou kouakou (REC-20251226-878)', 1, 'ESPECES', 'REC-20251226-878', NULL, NULL),
+  (5, 'RECOUVREMENT', 1500, '2025-12-26 04:09:40', 'Recouvrement : konan konan', 1, 'ESPECES', 'REC-20251226-273', NULL, NULL),
+  (6, 'DECAISSEMENT', 2000, '2025-12-26 00:00:00', 'carburant', 1, 'WAVE', 'DEC-1766722604132', 'ERIC KONAN', 'ARNAUD'),
+  (7, 'VERSEMENT', 2000, '2025-12-26 05:07:34', 'Versement ESPECES', 3, 'ESPECES', 'VERS-1766725654069', NULL, NULL),
+  (8, 'RECOUVREMENT', 1000, '2025-12-26 03:51:14', 'Recouvrement : OUATTARA (CNAM)', 1, 'ESPECES', 'REC-20251227-835', NULL, NULL);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `caisse_recouvrements_details`
+  --
+  
+> CREATE TABLE `caisse_recouvrements_details` (
+    `id` int(11) NOT NULL,
+    `caisse_mouvement_id` int(11) DEFAULT NULL,
+    `vente_id` int(11) DEFAULT NULL,
+    `montant_regle` double DEFAULT NULL,
+    `date_created` datetime DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `caisse_recouvrements_details`
+  --
+  
+  INSERT INTO `caisse_recouvrements_details` (`id`, `caisse_mouvement_id`, `vente_id`, `montant_regle`, `date_created`) VALUES
+  (1, 5, 24, 1500, '2025-12-26 04:09:40'),
+  (2, 8, 19, 1000, '2025-12-27 03:51:14');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `chambres`
+  --
+  
+> CREATE TABLE `chambres` (
+    `id` int(11) NOT NULL,
+    `nom` varchar(100) NOT NULL,
+    `prix_journalier` int(11) DEFAULT 0,
+    `statut` enum('actif','suspendu') DEFAULT 'actif'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `chambres`
+  --
+  
+  INSERT INTO `chambres` (`id`, `nom`, `prix_journalier`, `statut`) VALUES
+  (3, 'CHAMBRE A 1', 0, 'actif'),
+  (4, 'CHAMBRE A2', 0, 'actif'),
+  (5, 'Chambre A5', 0, 'actif');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `clinique_info`
+  --
+  
+> CREATE TABLE `clinique_info` (
+    `id` int(11) NOT NULL,
+    `nom_clinique` varchar(150) DEFAULT NULL,
+    `adresse` varchar(255) DEFAULT NULL,
+    `telephone` varchar(50) DEFAULT NULL,
+    `email` varchar(100) DEFAULT NULL,
+    `logo_path` text DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `clinique_info`
+  --
+  
+  INSERT INTO `clinique_info` (`id`, `nom_clinique`, `adresse`, `telephone`, `email`, `logo_path`) VALUES
+  (1, 'Centre Médico-Social FOCOLARI', NULL, NULL, NULL, NULL);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `clotures_journalieres`
+  --
+  
+> CREATE TABLE `clotures_journalieres` (
+    `id` int(11) NOT NULL,
+    `date_cloture` date DEFAULT NULL,
+    `date_systeme_suivante` date DEFAULT NULL,
+    `user_id` int(11) DEFAULT NULL,
+    `total_especes` double DEFAULT 0,
+    `total_wave` double DEFAULT 0,
+    `total_orange` double DEFAULT 0,
+    `total_mtn` double DEFAULT 0,
+    `total_credit` double DEFAULT 0,
+    `total_general` double DEFAULT 0,
+    `nombre_ventes` int(11) DEFAULT 0,
+    `observations` text DEFAULT NULL,
+    `date_creation` datetime DEFAULT current_timestamp(),
+    `statut` varchar(20) DEFAULT 'CLOTUREE',
+    `decloture_user_id` int(11) DEFAULT NULL,
+    `decloture_date` datetime DEFAULT NULL,
+    `decloture_raison` text DEFAULT NULL,
+    `recloture_date` datetime DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `clotures_journalieres`
+  --
+  
+  INSERT INTO `clotures_journalieres` (`id`, `date_cloture`, `date_systeme_suivante`, `user_id`, `total_especes`, `total_wave`, `total_orange`, `total_mtn`, `total_credit`, `total_general`, `nombre_ventes`, `observations`, `date_creation`, `statut`, `decloture_user_id`, `decloture_date`, `decloture_raison`, `recloture_date`) VALUES
+  (1, '2025-12-25', '2025-12-26', NULL, 0, 0, 0, 0, 0, 0, 0, NULL, '2025-12-25 17:28:22', 'CLOTUREE', NULL, NULL, NULL, NULL),
+  (2, '2025-12-26', '2025-12-26', NULL, 0, 0, 0, 0, 0, 0, 0, NULL, '2025-12-25 17:48:48', 'CLOTUREE', NULL, NULL, NULL, NULL);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `commandes`
+  --
+  
+> CREATE TABLE `commandes` (
+    `id` int(11) NOT NULL,
+    `numero_commande` varchar(50) DEFAULT NULL,
+    `fournisseur_id` int(11) DEFAULT NULL,
+    `date_commande` datetime DEFAULT NULL,
+    `statut` varchar(50) DEFAULT NULL,
+    `created_at` datetime DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `commandes`
+  --
+  
+  INSERT INTO `commandes` (`id`, `numero_commande`, `fournisseur_id`, `date_commande`, `statut`, `created_at`) VALUES
+  (1, 'CMD-1766811032046', 1, '2025-12-27 04:49:00', 'BROUILLON', '2025-12-27 04:50:32'),
+  (2, 'CMD-1766811532433', 1, '2025-12-27 04:58:00', 'BROUILLON', '2025-12-27 04:58:52');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `commande_details`
+  --
+  
+> CREATE TABLE `commande_details` (
+    `id` int(11) NOT NULL,
+    `commande_id` int(11) DEFAULT NULL,
+    `article_id` int(11) DEFAULT NULL,
+    `quantite_demandee` int(11) DEFAULT NULL,
+    `prix_achat_estime` double DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `commande_details`
+  --
+  
+  INSERT INTO `commande_details` (`id`, `commande_id`, `article_id`, `quantite_demandee`, `prix_achat_estime`) VALUES
+  (1, 1, 2, 5, 2000),
+  (2, 1, 3, 5, 2000),
+  (3, 1, 4, 5, 2999),
+  (4, 1, 5, 10, 22),
+  (5, 1, 6, 5, 2000),
+  (6, 1, 7, 10, 1000),
+  (7, 1, 8, 5, 500),
+  (8, 1, 9, 5, 2000),
+  (9, 1, 10, 5, 20),
+  (10, 2, 5, 10, 22),
+  (11, 2, 7, 10, 1000);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `corrections_dates_metier`
+  --
+  
+> CREATE TABLE `corrections_dates_metier` (
+    `id` int(11) NOT NULL,
+    `table_source` varchar(50) DEFAULT NULL,
+    `record_id` int(11) DEFAULT NULL,
+    `date_avant` date DEFAULT NULL,
+    `date_apres` date DEFAULT NULL,
+    `user_id` int(11) DEFAULT NULL,
+    `raison` text NOT NULL,
+    `date_correction` datetime DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `depenses`
+  --
+  
+> CREATE TABLE `depenses` (
+    `id` int(11) NOT NULL,
+    `motif` varchar(200) DEFAULT NULL,
+    `montant` int(11) DEFAULT NULL,
+    `date_depense` timestamp NOT NULL DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `factures_globales`
+  --
+  
+> CREATE TABLE `factures_globales` (
+    `id` int(11) NOT NULL,
+    `numero_facture` varchar(50) DEFAULT NULL,
+    `type_tiers` varchar(50) DEFAULT NULL,
+    `tiers_id` int(11) DEFAULT NULL,
+    `date_creation` datetime DEFAULT current_timestamp(),
+    `periode_debut` date DEFAULT NULL,
+    `periode_fin` date DEFAULT NULL,
+    `montant_total` double DEFAULT NULL,
+    `statut` varchar(50) DEFAULT 'VALIDEE'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `factures_globales_details`
+  --
+  
+> CREATE TABLE `factures_globales_details` (
+    `id` int(11) NOT NULL,
+    `facture_globale_id` int(11) DEFAULT NULL,
+    `vente_id` int(11) DEFAULT NULL,
+    `montant_tiers` double DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `fournisseurs`
+  --
+  
+> CREATE TABLE `fournisseurs` (
+    `id` int(11) NOT NULL,
+    `nom` varchar(100) NOT NULL,
+    `contact` varchar(50) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `lits`
+  --
+  
+> CREATE TABLE `lits` (
+    `id` int(11) NOT NULL,
+    `chambre_id` int(11) DEFAULT NULL,
+    `nom_lit` varchar(100) NOT NULL,
+    `prix_journalier` int(11) DEFAULT 0,
+    `statut` enum('actif','inactif') DEFAULT 'actif'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `lits`
+  --
+  
+  INSERT INTO `lits` (`id`, `chambre_id`, `nom_lit`, `prix_journalier`, `statut`) VALUES
+  (2, 3, 'LIT A3', 15000, ''),
+  (3, 3, 'LIT A2', 25000, ''),
+  (4, 4, 'lit A4', 50000, ''),
+  (5, 3, 'LIT A12', 50000, ''),
+  (6, 5, 'lit 32', 35000, ''),
+  (7, 3, 'LIT A3', 20000, ''),
+  (8, 4, 'dd', 23, '');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `logs_modifications`
+  --
+  
+> CREATE TABLE `logs_modifications` (
+    `id` int(11) NOT NULL,
+    `table_name` varchar(50) DEFAULT NULL,
+    `record_id` int(11) DEFAULT NULL,
+    `field_name` varchar(50) DEFAULT NULL,
+    `old_value` varchar(255) DEFAULT NULL,
+    `new_value` varchar(255) DEFAULT NULL,
+    `user_id` int(11) DEFAULT NULL,
+    `date_modification` datetime DEFAULT current_timestamp(),
+    `motif` varchar(255) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `logs_modifications`
+  --
+  
+  INSERT INTO `logs_modifications` (`id`, `table_name`, `record_id`, `field_name`, `old_value`, `new_value`, `user_id`, `date_modification`, `motif`) VALUES
+  (1, 'ventes', 19, 'reste_a_payer', '1000', '0', 1, '2025-12-27 03:51:14', 'Recouvrement automatique');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `patients`
+  --
+  
+> CREATE TABLE `patients` (
+    `id` int(11) NOT NULL,
+    `numero_carnet` varchar(50) DEFAULT NULL,
+    `nom_prenoms` varchar(255) DEFAULT NULL,
+    `sexe` enum('Homme','Femme') DEFAULT NULL,
+    `date_naissance` date DEFAULT NULL,
+    `nom` varchar(100) NOT NULL,
+    `prenom` varchar(100) DEFAULT NULL,
+    `societe_id` int(11) DEFAULT NULL,
+    `telephone` varchar(20) DEFAULT NULL,
+    `telephone2` varchar(20) DEFAULT NULL,
+    `taux_patient` int(11) DEFAULT NULL,
+    `statut` enum('actif','suspendu') DEFAULT 'actif',
+    `date_creation` timestamp NOT NULL DEFAULT current_timestamp(),
+    `ville` varchar(100) DEFAULT NULL,
+    `sous_prefecture` varchar(100) DEFAULT NULL,
+    `village` varchar(100) DEFAULT NULL,
+    `assurance_id` int(11) DEFAULT NULL,
+    `numero_assure` varchar(100) DEFAULT NULL,
+    `taux_couverture` int(11) DEFAULT 80,
+    `nom_salarie` text DEFAULT NULL,
+    `telephone_assurance` text DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `patients`
+  --
+  
+  INSERT INTO `patients` (`id`, `numero_carnet`, `nom_prenoms`, `sexe`, `date_naissance`, `nom`, `prenom`, `societe_id`, `telephone`, `telephone2`, `taux_patient`, `statut`, `date_creation`, `ville`, `sous_prefecture`, `village`, `assurance_id`, `numero_assure`, `taux_couverture`, `nom_salarie`, `telephone_assurance`) VALUES
+  (1, 'FC-123', 'kouakou kouakou', 'Homme', '2025-12-01', '', NULL, NULL, '077070707', '0808080808', NULL, 'actif', '2025-12-21 04:34:20', 'MANe\"', 'MAN', 'fakobly', NULL, NULL, 80, NULL, NULL),
+  (2, 'fc-122', 'momo', 'Homme', '2025-12-10', '', NULL, NULL, '000000000', '', NULL, 'actif', '2025-12-22 12:29:27', 'LOme', '', '', NULL, NULL, 80, NULL, NULL),
+  (3, 'fc-111', 'konan konan', 'Homme', '2025-12-18', '', NULL, NULL, '', '', NULL, 'actif', '2025-12-22 13:44:31', '', '', '', NULL, NULL, 80, NULL, NULL),
+  (4, 'FC-001', 'OUATTARA', 'Homme', '2025-12-04', '', NULL, NULL, '', '', NULL, 'actif', '2025-12-22 13:56:07', '', '', '', 1, 'ASS-566-189', 70, NULL, NULL);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `personnel`
+  --
+  
+> CREATE TABLE `personnel` (
+    `id` int(11) NOT NULL,
+    `nom_prenoms` varchar(255) NOT NULL,
+    `telephone` varchar(50) DEFAULT NULL,
+    `sexe` enum('M','F') DEFAULT NULL,
+    `quartier` varchar(255) DEFAULT NULL,
+    `fonction` varchar(255) DEFAULT NULL,
+    `date_creation` datetime DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `personnel`
+  --
+  
+  INSERT INTO `personnel` (`id`, `nom_prenoms`, `telephone`, `sexe`, `quartier`, `fonction`, `date_creation`) VALUES
+  (1, 'ERIC KONAN', '00 00 00 00 00', 'M', 'FAYA', 'Comptable', '2025-12-25 04:00:44');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `prestations`
+  --
+  
+> CREATE TABLE `prestations` (
+    `id` int(11) NOT NULL,
+    `libelle` varchar(100) DEFAULT NULL,
+    `prix_standard` int(11) DEFAULT NULL,
+    `categorie` varchar(50) DEFAULT 'GENERAL'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `prestations`
+  --
+  
+  INSERT INTO `prestations` (`id`, `libelle`, `prix_standard`, `categorie`) VALUES
+  (1, 'NFS', 2000, 'LABO'),
+  (2, 'Pansement', 3000, 'SOINS'),
+  (4, 'Consultation Générale', 2000, 'CONSULTATION');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `societes`
+  --
+  
+> CREATE TABLE `societes` (
+    `id` int(11) NOT NULL,
+    `assurance_id` int(11) DEFAULT NULL,
+    `nom_societe` varchar(100) NOT NULL,
+    `taux_prise_en_charge` int(11) DEFAULT 0,
+    `statut` enum('actif','inactif') DEFAULT 'actif'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `societes`
+  --
+  
+  INSERT INTO `societes` (`id`, `assurance_id`, `nom_societe`, `taux_prise_en_charge`, `statut`) VALUES
+  (1, 1, 'Police Nationale', 80, 'actif'),
+  (2, 1, 'Librairie de France', 80, 'actif'),
+  (3, 3, 'ECOBANK', 85, 'actif');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_articles`
+  --
+  
+> CREATE TABLE `stock_articles` (
+    `cip` varchar(100) DEFAULT NULL,
+    `id` int(11) NOT NULL,
+    `designation` varchar(150) NOT NULL,
+    `rayon_id` int(11) DEFAULT NULL,
+    `quantite_stock` int(11) DEFAULT 0,
+    `seuil_alerte` int(11) DEFAULT 5,
+    `unite_mesure` varchar(20) DEFAULT 'Unité',
+    `prix_achat` int(11) DEFAULT 0,
+    `unite_gros` varchar(50) DEFAULT 'Boîte',
+    `unite_detail` varchar(50) DEFAULT 'Plaquette',
+    `coefficient_conversion` int(11) DEFAULT 1,
+    `prix_vente` decimal(10,2) NOT NULL DEFAULT 0.00,
+    `article_parent_id` int(11) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_articles`
+  --
+  
+  INSERT INTO `stock_articles` (`cip`, `id`, `designation`, `rayon_id`, `quantite_stock`, `seuil_alerte`, `unite_mesure`, `prix_achat`, `unite_gros`, `unite_detail`, `coefficient_conversion`, `prix_vente`, `article_parent_id`) VALUES
+  ('0001', 1, 'paracetamol', 1, 19, 5, 'Unité', 2000, 'Boîte', 'Plaquette', 1, 3500.00, NULL),
+  ('21212', 2, 'paracetamol', 1, 3, 5, 'Unité', 2000, 'Boîte', 'Plaquette', 1, 2000.00, NULL),
+  ('1222', 3, 'paracetamol', 1, 3, 5, 'Unité', 2000, 'Boîte', 'Plaquette', 1, 2500.00, NULL),
+  ('88', 4, 'sasa', 1, 2, 5, 'Unité', 2999, 'Boîte', 'Plaquette', 1, 2000.00, NULL),
+  ('sz', 5, 'sz', 1, 0, 5, 'Unité', 22, 'Boîte', 'Plaquette', 1, 22.00, NULL),
+  ('0003', 6, 'SEKISSAN SIROP', 1, 4, 5, 'Unité', 2000, 'Boîte', 'Plaquette', 1, 2500.00, NULL),
+  ('002', 7, 'DYNAPAR', NULL, 0, 5, 'Unité', 1000, 'Boîte', 'Plaquette', 1, 2500.00, NULL),
+  ('003', 8, 'SMECTA', 1, 3, 5, 'Unité', 500, 'Boîte', 'Plaquette', 1, 1500.00, NULL),
+  ('004', 9, 'AMOXICILLINE ', 4, 1, 5, 'Unité', 2000, 'Boîte', 'Plaquette', 1, 3000.00, NULL),
+  ('004D', 10, 'Detail amoxiciline', 1, 2, 5, 'Unité', 20, 'Boîte', 'Plaquette', 100, 100.00, 9);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_avoirs_fournisseurs`
+  --
+  
+> CREATE TABLE `stock_avoirs_fournisseurs` (
+    `id` int(11) NOT NULL,
+    `numero_avoir` varchar(50) NOT NULL,
+    `date_avoir` date NOT NULL,
+    `br_id` int(11) NOT NULL,
+    `montant_total` decimal(15,2) DEFAULT 0.00,
+    `statut` enum('En attente','Validé','Annulé') DEFAULT 'En attente',
+    `observation` text DEFAULT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Avoirs fournisseurs suite aux retours';
+  
+  --
+  -- Déchargement des données de la table `stock_avoirs_fournisseurs`
+  --
+  
+  INSERT INTO `stock_avoirs_fournisseurs` (`id`, `numero_avoir`, `date_avoir`, `br_id`, `montant_total`, `statut`, `observation`, `created_at`, `updated_at`) VALUES
+  (1, 'AVF-20251224-050302', '2025-12-24', 1, 4000.00, 'En attente', '', '2025-12-24 05:03:02', '2025-12-24 05:03:02'),
+  (2, 'AVF-20251224-051104', '2025-12-24', 3, 27000.00, 'En attente', '', '2025-12-24 05:11:04', '2025-12-24 05:11:04'),
+  (3, 'BL-005-A', '2025-12-24', 4, 4000.00, 'Validé', '', '2025-12-24 05:48:40', '2025-12-24 05:48:40'),
+  (4, 'BL-001-A', '2025-12-24', 5, 20000.00, 'Validé', '', '2025-12-24 18:04:56', '2025-12-24 18:04:56');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_avoir_details`
+  --
+  
+> CREATE TABLE `stock_avoir_details` (
+    `id` int(11) NOT NULL,
+    `avoir_id` int(11) NOT NULL,
+    `article_id` int(11) NOT NULL,
+    `quantite` decimal(10,2) NOT NULL,
+    `prix_unitaire` decimal(10,2) NOT NULL,
+    `motif` enum('Rejeté','Remplacé','Déduit facture') NOT NULL,
+    `total_ligne` decimal(15,2) NOT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Détails des lignes d avoir fournisseur';
+  
+  --
+  -- Déchargement des données de la table `stock_avoir_details`
+  --
+  
+  INSERT INTO `stock_avoir_details` (`id`, `avoir_id`, `article_id`, `quantite`, `prix_unitaire`, `motif`, `total_ligne`, `created_at`) VALUES
+  (1, 1, 1, 2.00, 2000.00, 'Déduit facture', 4000.00, '2025-12-24 05:03:02'),
+  (2, 2, 8, 6.00, 500.00, 'Rejeté', 3000.00, '2025-12-24 05:11:04'),
+  (3, 2, 9, 6.00, 2000.00, 'Déduit facture', 12000.00, '2025-12-24 05:11:04'),
+  (4, 2, 6, 6.00, 2000.00, 'Remplacé', 12000.00, '2025-12-24 05:11:05'),
+  (5, 3, 1, 2.00, 2000.00, 'Remplacé', 4000.00, '2025-12-24 05:48:40'),
+  (6, 4, 1, 10.00, 2000.00, 'Déduit facture', 20000.00, '2025-12-24 18:04:56');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_avoir_mouvements`
+  --
+  
+> CREATE TABLE `stock_avoir_mouvements` (
+    `id` int(11) NOT NULL,
+    `avoir_detail_id` int(11) NOT NULL,
+    `article_id` int(11) NOT NULL,
+    `quantite` decimal(10,2) NOT NULL,
+    `type_mouvement` enum('Remplacé','Déduit') NOT NULL,
+    `stock_avant` decimal(10,2) NOT NULL,
+    `stock_apres` decimal(10,2) NOT NULL,
+    `date_mouvement` datetime DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Traçabilité des mouvements de stock suite aux avoirs';
+  
+  --
+  -- Déchargement des données de la table `stock_avoir_mouvements`
+  --
+  
+  INSERT INTO `stock_avoir_mouvements` (`id`, `avoir_detail_id`, `article_id`, `quantite`, `type_mouvement`, `stock_avant`, `stock_apres`, `date_mouvement`) VALUES
+  (1, 1, 1, 2.00, 'Déduit', 73.00, 73.00, '2025-12-24 05:03:02'),
+  (2, 3, 9, 6.00, 'Déduit', 9.00, 9.00, '2025-12-24 05:11:04'),
+  (3, 4, 6, 6.00, 'Remplacé', 14.00, 20.00, '2025-12-24 05:11:05'),
+  (4, 5, 1, 2.00, 'Remplacé', 73.00, 75.00, '2025-12-24 05:48:40'),
+  (5, 6, 1, 10.00, 'Déduit', 65.00, 65.00, '2025-12-24 18:04:56');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_bl_details`
+  --
+  
+> CREATE TABLE `stock_bl_details` (
+    `id` int(11) NOT NULL,
+    `bl_id` int(11) DEFAULT NULL,
+    `article_id` int(11) DEFAULT NULL,
+    `quantite` int(11) NOT NULL,
+    `prix_achat_ht` int(11) DEFAULT 0,
+    `prix_vente` int(11) DEFAULT 0,
+    `tva` int(11) DEFAULT 0,
+    `date_peremption` date DEFAULT NULL,
+    `total_ligne` int(11) DEFAULT 0
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_bl_details`
+  --
+  
+  INSERT INTO `stock_bl_details` (`id`, `bl_id`, `article_id`, `quantite`, `prix_achat_ht`, `prix_vente`, `tva`, `date_peremption`, `total_ligne`) VALUES
+  (7, 15, 1, 14, 2000, 3500, 0, '2025-12-20', 28000),
+  (8, 16, 4, 12, 1000, 2000, 18, '2025-12-26', 12000),
+  (9, 17, 8, 12, 500, 1500, 0, '2026-01-30', 6000),
+  (10, 17, 9, 15, 2000, 3000, 0, '2026-05-08', 30000),
+  (11, 17, 6, 20, 2000, 2500, 0, '2026-07-23', 40000),
+  (12, 18, 1, 2, 2000, 3500, 0, NULL, 4000);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_bl_supprimes`
+  --
+  
+> CREATE TABLE `stock_bl_supprimes` (
+    `id` int(11) NOT NULL,
+    `bl_id` int(11) DEFAULT NULL,
+    `numero_bl` varchar(50) DEFAULT NULL,
+    `fournisseur_nom` varchar(255) DEFAULT NULL,
+    `montant_total` double DEFAULT NULL,
+    `user_id` int(11) DEFAULT NULL,
+    `date_suppression` datetime DEFAULT current_timestamp(),
+    `details_json` text DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_bons_livraison`
+  --
+  
+> CREATE TABLE `stock_bons_livraison` (
+    `id` int(11) NOT NULL,
+    `numero_bl` varchar(50) DEFAULT NULL,
+    `fournisseur_id` int(11) DEFAULT NULL,
+    `date_reception` date DEFAULT NULL,
+    `montant_total` int(11) DEFAULT 0,
+    `date_bl` date DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_bons_livraison`
+  --
+  
+  INSERT INTO `stock_bons_livraison` (`id`, `numero_bl`, `fournisseur_id`, `date_reception`, `montant_total`, `date_bl`) VALUES
+  (15, 'BL-001', 1, NULL, 28000, '2025-12-23'),
+  (16, 'BL-003', 1, NULL, 12000, '2025-12-23'),
+  (17, 'BL-004', 1, NULL, 76000, '2025-12-24'),
+  (18, 'BL-005', 1, NULL, 4000, '2025-12-24');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_bons_retour`
+  --
+  
+> CREATE TABLE `stock_bons_retour` (
+    `id` int(11) NOT NULL,
+    `numero_br` varchar(50) NOT NULL,
+    `date_br` date NOT NULL,
+    `bl_id` int(11) NOT NULL,
+    `montant_total` decimal(15,2) DEFAULT 0.00,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Table des bons de retour de marchandises aux fournisseurs';
+  
+  --
+  -- Déchargement des données de la table `stock_bons_retour`
+  --
+  
+  INSERT INTO `stock_bons_retour` (`id`, `numero_br`, `date_br`, `bl_id`, `montant_total`, `created_at`, `updated_at`) VALUES
+  (1, 'BR-20251223-183205', '2025-12-23', 15, 4000.00, '2025-12-23 18:32:05', '2025-12-23 18:32:05'),
+  (2, 'BR-20251223-212316', '2025-12-23', 16, 6000.00, '2025-12-23 21:23:16', '2025-12-23 21:23:16'),
+  (3, 'BR-20251224-050950', '2025-12-24', 17, 27000.00, '2025-12-24 05:09:50', '2025-12-24 05:09:50'),
+  (4, 'BL-005-R', '2025-12-24', 18, 4000.00, '2025-12-24 05:48:04', '2025-12-24 05:48:04'),
+  (5, 'BL-001-R', '2025-12-24', 15, 20000.00, '2025-12-24 18:04:27', '2025-12-24 18:04:27');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_br_details`
+  --
+  
+> CREATE TABLE `stock_br_details` (
+    `id` int(11) NOT NULL,
+    `br_id` int(11) NOT NULL,
+    `article_id` int(11) NOT NULL,
+    `quantite_retour` decimal(10,2) NOT NULL,
+    `prix_achat_ht` decimal(10,2) NOT NULL,
+    `motif` varchar(100) NOT NULL,
+    `total_ligne` decimal(15,2) NOT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Table des lignes de détail des bons de retour';
+  
+  --
+  -- Déchargement des données de la table `stock_br_details`
+  --
+  
+  INSERT INTO `stock_br_details` (`id`, `br_id`, `article_id`, `quantite_retour`, `prix_achat_ht`, `motif`, `total_ligne`, `created_at`) VALUES
+  (1, 1, 1, 2.00, 2000.00, 'Facturé non livré', 4000.00, '2025-12-23 18:32:05'),
+  (2, 2, 4, 6.00, 1000.00, 'Bon état', 6000.00, '2025-12-23 21:23:16'),
+  (3, 3, 8, 6.00, 500.00, 'Péremption', 3000.00, '2025-12-24 05:09:50'),
+  (4, 3, 9, 6.00, 2000.00, 'Cassé', 12000.00, '2025-12-24 05:09:50'),
+  (5, 3, 6, 6.00, 2000.00, 'Facturé non livré', 12000.00, '2025-12-24 05:09:50'),
+  (6, 4, 1, 2.00, 2000.00, 'Péremption', 4000.00, '2025-12-24 05:48:04'),
+  (7, 5, 1, 10.00, 2000.00, 'Péremption', 20000.00, '2025-12-24 18:04:27');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_commandes`
+  --
+  
+> CREATE TABLE `stock_commandes` (
+    `id` int(11) NOT NULL,
+    `date_commande` timestamp NOT NULL DEFAULT current_timestamp(),
+    `statut` enum('En attente','Reçue','Annulée') DEFAULT 'En attente',
+    `description` text DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_deconditionnements`
+  --
+  
+> CREATE TABLE `stock_deconditionnements` (
+    `id` int(11) NOT NULL,
+    `numero_operation` varchar(50) NOT NULL,
+    `date_operation` date DEFAULT NULL,
+    `article_source_id` int(11) DEFAULT NULL,
+    `quantite_source` double DEFAULT NULL,
+    `unite_source` varchar(50) DEFAULT NULL,
+    `article_destination_id` int(11) DEFAULT NULL,
+    `quantite_destination` double DEFAULT NULL,
+    `unite_destination` varchar(50) DEFAULT NULL,
+    `ratio_conversion` double DEFAULT NULL,
+    `cout_unitaire_source` double DEFAULT NULL,
+    `cout_unitaire_destination` double DEFAULT NULL,
+    `cout_total` double DEFAULT NULL,
+    `motif` text DEFAULT NULL,
+    `statut` varchar(50) DEFAULT 'En cours',
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `created_by` varchar(50) DEFAULT NULL,
+    `validated_at` datetime DEFAULT NULL,
+    `validated_by` varchar(50) DEFAULT NULL,
+    `cancelled_at` datetime DEFAULT NULL,
+    `cancelled_by` varchar(50) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_deconditionnements`
+  --
+  
+  INSERT INTO `stock_deconditionnements` (`id`, `numero_operation`, `date_operation`, `article_source_id`, `quantite_source`, `unite_source`, `article_destination_id`, `quantite_destination`, `unite_destination`, `ratio_conversion`, `cout_unitaire_source`, `cout_unitaire_destination`, `cout_total`, `motif`, `statut`, `created_at`, `created_by`, `validated_at`, `validated_by`, `cancelled_at`, `cancelled_by`) VALUES
+  (1, 'QUICK-1766622078768', '2025-12-25', 9, 1, NULL, 10, 100, NULL, 100, NULL, NULL, NULL, NULL, 'Validé', '2025-12-25 00:21:18', 'System', '2025-12-25 00:21:18', NULL, NULL, NULL),
+  (2, 'QUICK-1766622152301', '2025-12-25', 9, 1, NULL, 10, 100, NULL, 100, NULL, NULL, NULL, NULL, 'Validé', '2025-12-25 00:22:32', 'System', '2025-12-25 00:22:32', NULL, NULL, NULL);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_fournisseurs`
+  --
+  
+> CREATE TABLE `stock_fournisseurs` (
+    `id` int(11) NOT NULL,
+    `nom` varchar(255) NOT NULL,
+    `contact_nom` varchar(255) DEFAULT NULL,
+    `telephone` varchar(50) DEFAULT NULL,
+    `email` varchar(255) DEFAULT NULL,
+    `adresse` text DEFAULT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_fournisseurs`
+  --
+  
+  INSERT INTO `stock_fournisseurs` (`id`, `nom`, `contact_nom`, `telephone`, `email`, `adresse`, `created_at`) VALUES
+  (1, 'PHARMACIE DE LIBREVILLE', 'MR STEPHANE', '0172727477', '', '', '2025-12-22 19:51:12');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_inventaires`
+  --
+  
+> CREATE TABLE `stock_inventaires` (
+    `id` int(11) NOT NULL,
+    `date_inventaire` timestamp NOT NULL DEFAULT current_timestamp(),
+    `agent_responsable` varchar(100) DEFAULT NULL,
+    `commentaire` text DEFAULT NULL,
+    `rayon_ids` text DEFAULT NULL,
+    `code` varchar(50) DEFAULT NULL,
+    `date_creation` datetime DEFAULT current_timestamp(),
+    `date_validation` datetime DEFAULT NULL,
+    `statut` enum('BROUILLON','VALIDE') DEFAULT 'BROUILLON',
+    `type` enum('GLOBAL','RAYON') DEFAULT NULL,
+    `valorisation_theorique` double DEFAULT 0,
+    `valorisation_reelle` double DEFAULT 0,
+    `created_by` varchar(100) DEFAULT NULL,
+    `libelle` varchar(255) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_inventaires`
+  --
+  
+  INSERT INTO `stock_inventaires` (`id`, `date_inventaire`, `agent_responsable`, `commentaire`, `rayon_ids`, `code`, `date_creation`, `date_validation`, `statut`, `type`, `valorisation_theorique`, `valorisation_reelle`, `created_by`, `libelle`) VALUES
+  (1, '2025-12-25 01:24:38', NULL, NULL, '[1]', 'INV-202512-8303', '2025-12-25 01:24:38', '2025-12-25 01:26:23', 'VALIDE', 'RAYON', 304982, 85536, NULL, NULL),
+  (2, '2025-12-25 01:28:02', NULL, NULL, NULL, 'INV-202512-2813', '2025-12-25 01:28:02', NULL, 'BROUILLON', 'GLOBAL', 85536, 0, NULL, NULL);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_inventaire_lignes`
+  --
+  
+> CREATE TABLE `stock_inventaire_lignes` (
+    `id` int(11) NOT NULL,
+    `inventaire_id` int(11) DEFAULT NULL,
+    `article_id` int(11) DEFAULT NULL,
+    `stock_theorique` double DEFAULT NULL,
+    `stock_compte` double DEFAULT NULL,
+    `ecart` double DEFAULT 0,
+    `prix_achat` double DEFAULT 0
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_inventaire_lignes`
+  --
+  
+  INSERT INTO `stock_inventaire_lignes` (`id`, `inventaire_id`, `article_id`, `stock_theorique`, `stock_compte`, `ecart`, `prix_achat`) VALUES
+  (1, 1, 1, 65, 23, -42, 2000),
+  (2, 1, 2, 30, 4, -26, 2000),
+  (3, 1, 3, 0, 4, 4, 2000),
+  (4, 1, 4, 18, 4, -14, 2999),
+  (5, 1, 5, 0, 0, 0, 22),
+  (6, 1, 6, 20, 4, -16, 2000),
+  (7, 1, 8, 6, 3, -3, 500),
+  (8, 1, 9, 7, 1, -6, 2000),
+  (9, 1, 10, 200, 2, -198, 20),
+  (10, 2, 1, 23, NULL, 0, 2000),
+  (11, 2, 2, 4, NULL, 0, 2000),
+  (12, 2, 3, 4, NULL, 0, 2000),
+  (13, 2, 4, 4, NULL, 0, 2999),
+  (14, 2, 5, 0, NULL, 0, 22),
+  (15, 2, 6, 4, NULL, 0, 2000),
+  (16, 2, 7, 0, NULL, 0, 1000),
+  (17, 2, 8, 3, NULL, 0, 500),
+  (18, 2, 9, 1, NULL, 0, 2000),
+  (19, 2, 10, 2, NULL, 0, 20);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_mouvements`
+  --
+  
+> CREATE TABLE `stock_mouvements` (
+    `id` int(11) NOT NULL,
+    `article_id` int(11) DEFAULT NULL,
+    `type_mouvement` enum('ENTREE','SORTIE') NOT NULL,
+    `quantite` int(11) NOT NULL,
+    `motif` varchar(255) DEFAULT NULL,
+    `date_mouvement` timestamp NOT NULL DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_paiements_fournisseurs`
+  --
+  
+> CREATE TABLE `stock_paiements_fournisseurs` (
+    `id` int(11) NOT NULL,
+    `numero_paiement` varchar(50) NOT NULL,
+    `bl_id` int(11) NOT NULL,
+    `fournisseur_id` int(11) NOT NULL,
+    `montant_paye` decimal(15,2) NOT NULL,
+    `mode_paiement` enum('Chèque','Espèces','Mobile Money','Virement','TPE') NOT NULL,
+    `reference_paiement` varchar(100) DEFAULT NULL,
+    `date_paiement` date NOT NULL,
+    `observation` text DEFAULT NULL,
+    `created_by` varchar(100) DEFAULT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Paiements effectués aux fournisseurs sur les BL';
+  
+  --
+  -- Déchargement des données de la table `stock_paiements_fournisseurs`
+  --
+  
+  INSERT INTO `stock_paiements_fournisseurs` (`id`, `numero_paiement`, `bl_id`, `fournisseur_id`, `montant_paye`, `mode_paiement`, `reference_paiement`, `date_paiement`, `observation`, `created_by`, `created_at`, `updated_at`) VALUES
+  (1, 'PAY-BL-004-001', 17, 1, 25000.00, 'Chèque', NULL, '2025-12-24', NULL, 'admin', '2025-12-24 07:48:12', '2025-12-24 07:48:12'),
+  (2, 'PAY-BL-004-002', 17, 1, 25000.00, 'Virement', NULL, '2025-12-24', NULL, 'admin', '2025-12-24 21:29:55', '2025-12-24 21:29:55');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_rayons`
+  --
+  
+> CREATE TABLE `stock_rayons` (
+    `id` int(11) NOT NULL,
+    `libelle` varchar(100) NOT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_rayons`
+  --
+  
+  INSERT INTO `stock_rayons` (`id`, `libelle`) VALUES
+  (1, 'Antibiotiques'),
+  (4, 'Antipaludéen ');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_regularisations`
+  --
+  
+> CREATE TABLE `stock_regularisations` (
+    `id` int(11) NOT NULL,
+    `date_reg` datetime DEFAULT current_timestamp(),
+    `article_id` int(11) DEFAULT NULL,
+    `rubrique_id` int(11) DEFAULT NULL,
+    `quantite` double DEFAULT NULL,
+    `sens` enum('+','-') DEFAULT NULL,
+    `motif` text DEFAULT NULL,
+    `created_by` varchar(50) DEFAULT 'Admin'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_regularisations`
+  --
+  
+  INSERT INTO `stock_regularisations` (`id`, `date_reg`, `article_id`, `rubrique_id`, `quantite`, `sens`, `motif`, `created_by`) VALUES
+  (1, '2025-12-25 00:35:15', 2, 5, 10, '-', '', 'Admin'),
+  (2, '2025-12-25 01:26:23', 9, 11, 6, '-', 'Inv. INV-202512-8303', 'Admin'),
+  (3, '2025-12-25 01:26:23', 10, 11, 198, '-', 'Inv. INV-202512-8303', 'Admin'),
+  (4, '2025-12-25 01:26:23', 1, 11, 42, '-', 'Inv. INV-202512-8303', 'Admin'),
+  (5, '2025-12-25 01:26:23', 2, 11, 26, '-', 'Inv. INV-202512-8303', 'Admin'),
+  (6, '2025-12-25 01:26:23', 3, 11, 4, '+', 'Inv. INV-202512-8303', 'Admin'),
+  (7, '2025-12-25 01:26:23', 4, 11, 14, '-', 'Inv. INV-202512-8303', 'Admin'),
+  (8, '2025-12-25 01:26:23', 6, 11, 16, '-', 'Inv. INV-202512-8303', 'Admin'),
+  (9, '2025-12-25 01:26:23', 8, 11, 3, '-', 'Inv. INV-202512-8303', 'Admin');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `stock_rubriques`
+  --
+  
+> CREATE TABLE `stock_rubriques` (
+    `id` int(11) NOT NULL,
+    `libelle` varchar(100) NOT NULL,
+    `type` enum('ENTREE','SORTIE','MIXTE') NOT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `stock_rubriques`
+  --
+  
+  INSERT INTO `stock_rubriques` (`id`, `libelle`, `type`) VALUES
+  (1, 'Péremption', 'SORTIE'),
+  (3, 'Casse / Détérioration', 'SORTIE'),
+  (5, 'Avarié', 'SORTIE'),
+  (6, 'Rectification Stock', 'MIXTE'),
+  (9, 'Don En entrant', 'ENTREE'),
+  (11, 'Rectification Inventaire', 'MIXTE');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `ventes`
+  --
+  
+> CREATE TABLE `ventes` (
+    `id` int(11) NOT NULL,
+    `patient_id` int(11) DEFAULT NULL,
+    `acte_libelle` varchar(100) DEFAULT NULL,
+    `montant_total` int(11) DEFAULT NULL,
+    `part_patient` int(11) DEFAULT NULL,
+    `part_assureur` int(11) DEFAULT NULL,
+    `mode_paiement` enum('CASH','WAVE','ORANGE','MTN') DEFAULT 'CASH',
+    `date_vente` datetime DEFAULT NULL,
+    `statut` text DEFAULT 'PAYE',
+    `reste_a_payer` double DEFAULT 0,
+    `type_vente` text DEFAULT 'ACTE',
+    `article_id` int(11) DEFAULT NULL,
+    `personnel_id` int(11) DEFAULT NULL,
+    `numero_bon` text DEFAULT NULL,
+    `societe_nom` text DEFAULT NULL,
+    `numero_ticket` varchar(50) DEFAULT NULL,
+    `user_id` int(11) DEFAULT NULL,
+    `created_at` datetime DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `ventes`
+  --
+  
+  INSERT INTO `ventes` (`id`, `patient_id`, `acte_libelle`, `montant_total`, `part_patient`, `part_assureur`, `mode_paiement`, `date_vente`, `statut`, `reste_a_payer`, `type_vente`, `article_id`, `personnel_id`, `numero_bon`, `societe_nom`, `numero_ticket`, `user_id`, `created_at`) VALUES
+  (1, 4, 'Pédiatrie', 2000, 600, 1400, 'CASH', '2025-12-22 16:05:12', 'PAYE', 0, 'ACTE', NULL, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (2, 4, '🏥 Hospitalisation (CHAMBRE A 1/LIT A12) - 2 jour(s)', 100000, 30000, 70000, 'CASH', '2025-12-22 16:52:02', 'PAYE', 0, 'ACTE', NULL, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (3, 4, 'Pédiatrie', 2000, 600, 1400, 'CASH', '2025-12-22 16:52:02', 'PAYE', 0, 'ACTE', NULL, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (4, 4, 'NFS', 2000, 600, 1400, 'CASH', '2025-12-22 16:52:02', 'PAYE', 0, 'ACTE', NULL, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (5, 4, 'Pansement', 3000, 900, 2100, 'CASH', '2025-12-22 16:52:02', 'PAYE', 0, 'ACTE', NULL, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (6, 4, 'Séjour CHAMBRE A 1 / LIT A12 (2 j)', 100000, 30000, 70000, '', '2025-12-25 03:17:27', 'PAYE', 0, 'HOSPITALISATION', NULL, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (7, 4, 'NFS', 2000, 600, 1400, '', '2025-12-25 03:17:27', 'PAYE', 0, 'ACTE', NULL, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (8, 4, 'paracetamol (x3)', 10500, 3150, 7350, '', '2025-12-25 03:34:31', 'PAYE', 0, 'MEDICAMENT', 1, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (9, 4, 'Consultation Générale (x1)', 2000, 600, 1400, '', '2025-12-25 03:34:31', 'PAYE', 0, 'ACTE', NULL, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (10, 3, 'paracetamol (x1)', 3500, 3500, 0, 'CASH', '2025-12-25 03:40:27', 'PAYE', 0, 'MEDICAMENT', 1, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (11, 3, 'paracetamol (x1)', 2000, 2000, 0, 'CASH', '2025-12-25 03:40:27', 'PAYE', 0, 'MEDICAMENT', 2, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (12, 3, 'paracetamol (x1)', 2500, 2500, 0, 'CASH', '2025-12-25 03:40:27', 'PAYE', 0, 'MEDICAMENT', 3, NULL, NULL, NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (13, 4, 'NFS (x1)', 2000, 2000, 0, 'CASH', '2025-12-25 14:41:22', 'PAYE', 0, 'ACTE', NULL, NULL, '', NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (14, 4, 'Séjour CHAMBRE A 1 / LIT A12 (x4)', 200000, 200000, 0, 'CASH', '2025-12-25 14:41:22', 'PAYE', 0, 'HOSPITALISATION', NULL, NULL, '', NULL, NULL, 1, '2025-12-26 01:06:04'),
+  (17, 1, 'Séjour CHAMBRE A 1 / LIT A2 (x10)', 250000, 250000, 0, '', '2025-12-25 16:49:47', 'PAYE', 0, 'HOSPITALISATION', NULL, NULL, '', NULL, 'TKT-251225-856', 1, '2025-12-26 01:06:04'),
+  (18, 1, 'sasa (x1)', 2000, 2000, 0, '', '2025-12-25 16:54:02', 'PAYE', 0, 'MEDICAMENT', 4, NULL, '', NULL, 'TKT-251225-375', 1, '2025-12-26 01:06:04'),
+  (19, 4, 'Consultation Générale (x1)', 2000, 2000, 0, '', '2025-12-25 17:58:55', 'PAYE', 0, 'ACTE', NULL, NULL, '', NULL, 'TKT-251225-008', 1, '2025-12-26 01:06:04'),
+  (20, 3, 'NFS (x1)', 2000, 2000, 0, '', '2025-12-26 00:36:57', 'PAYE', 0, 'ACTE', NULL, NULL, '', NULL, 'TKT-251226-747', 1, '2025-12-26 01:06:04'),
+  (21, 3, 'sasa (x1)', 2000, 2000, 0, '', '2025-12-26 00:49:55', 'PAYE', 0, 'MEDICAMENT', 4, NULL, '', NULL, 'TKT-251226-665', 1, '2025-12-26 01:06:04'),
+  (27, 4, 'Pansement (x1)', 3000, 900, 2100, '', '2025-12-26 00:13:06', 'PAYE', 0, 'ACTE', NULL, NULL, '', NULL, 'TKT-251226-194', 1, '2025-12-27 00:13:06');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `ventes_supprimees`
+> CREATE TABLE `ventes_supprimees` (
+    `id` int(11) NOT NULL,
+    `vente_id` int(11) DEFAULT NULL,
+    `patient_nom` varchar(255) DEFAULT NULL,
+    `acte_libelle` varchar(255) DEFAULT NULL,
+    `montant_total` double DEFAULT NULL,
+    `raison_suppression` varchar(255) DEFAULT NULL,
+    `user_id` int(11) DEFAULT NULL,
+    `date_suppression` datetime DEFAULT current_timestamp()
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `ventes_supprimees`
+  --
+  
+  INSERT INTO `ventes_supprimees` (`id`, `vente_id`, `patient_nom`, `acte_libelle`, `montant_total`, `raison_suppression`, `user_id`, `date_suppression`) VALUES
+  (1, 23, 'kouakou kouakou', 'sasa (x1)', 2000, 'Modification Panier', 1, '2025-12-26 14:46:11'),
+  (2, 26, 'OUATTARA', 'Pansement (x1)', 3000, 'Modification Panier', 1, '2025-12-27 03:20:12'),
+  (3, 25, 'kouakou kouakou', 'Pansement (x1)', 3000, 'Modification Panier', 1, '2025-12-27 03:23:50'),
+  (4, 24, 'konan konan', 'paracetamol (x1)', 2500, 'Modification Panier', 1, '2025-12-27 03:27:09'),
+  (5, 22, 'kouakou kouakou', 'Detail amoxiciline (x1)', 100, 'Modification Panier', 1, '2025-12-27 03:27:33');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `ventes_transferts`
+  --
+  
+> CREATE TABLE `ventes_transferts` (
+    `id` int(11) NOT NULL,
+    `patient_id` int(11) DEFAULT NULL,
+    `personnel_id_source` int(11) DEFAULT NULL,
+    `date_transfert` datetime DEFAULT current_timestamp(),
+    `statut` varchar(20) DEFAULT 'EN_ATTENTE',
+    `observation` text DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `ventes_transferts`
+  --
+  
+  INSERT INTO `ventes_transferts` (`id`, `patient_id`, `personnel_id_source`, `date_transfert`, `statut`, `observation`) VALUES
+  (1, 4, NULL, '2025-12-25 15:15:51', 'TRAITE', '');
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la table `ventes_transferts_items`
+  --
+  
+> CREATE TABLE `ventes_transferts_items` (
+    `id` int(11) NOT NULL,
+    `transfert_id` int(11) DEFAULT NULL,
+    `item_id` int(11) DEFAULT NULL,
+    `libelle` varchar(255) DEFAULT NULL,
+    `type` varchar(50) DEFAULT NULL,
+    `prix_unitaire` double DEFAULT NULL,
+    `qte` double DEFAULT NULL,
+    `use_assurance` tinyint(1) DEFAULT NULL,
+    `part_assureur_unitaire` double DEFAULT NULL,
+    `part_patient_unitaire` double DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  
+  --
+  -- Déchargement des données de la table `ventes_transferts_items`
+  --
+  
+  INSERT INTO `ventes_transferts_items` (`id`, `transfert_id`, `item_id`, `libelle`, `type`, `prix_unitaire`, `qte`, `use_assurance`, `part_assureur_unitaire`, `part_patient_unitaire`) VALUES
+  (1, 1, 2, 'Pansement', 'ACTE', 3000, 1, 1, 2100, 900),
+  (2, 1, 4, 'sasa', 'MEDICAMENT', 2000, 1, 0, 0, 2000);
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Doublure de structure pour la vue `v_deductions_bl`
+  -- (Voir ci-dessous la vue réelle)
+  --
+> CREATE TABLE `v_deductions_bl` (
+  `bl_id` int(11)
+  ,`numero_bl` varchar(50)
+  ,`numero_avoir` varchar(50)
+  ,`date_avoir` date
+  ,`numero_br` varchar(50)
+  ,`article_id` int(11)
+  ,`designation` varchar(150)
+  ,`quantite` decimal(10,2)
+  ,`prix_unitaire` double
+  ,`montant_deduction` double
+  );
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Doublure de structure pour la vue `v_historique_deconditionnements`
+  -- (Voir ci-dessous la vue réelle)
+  --
+> CREATE TABLE `v_historique_deconditionnements` (
+  `id` int(11)
+  ,`numero_operation` varchar(50)
+  ,`date_operation` date
+  ,`article_source_id` int(11)
+  ,`designation_source` varchar(150)
+  ,`cip_source` varchar(100)
+  ,`rayon_source` varchar(100)
+  ,`stock_actuel_source` double
+  ,`quantite_source` double
+  ,`unite_source` varchar(50)
+  ,`cout_unitaire_source` double
+  ,`article_destination_id` int(11)
+  ,`designation_destination` varchar(150)
+  ,`cip_destination` varchar(100)
+  ,`rayon_destination` varchar(100)
+  ,`stock_actuel_destination` double
+  ,`quantite_destination` double
+  ,`unite_destination` varchar(50)
+  ,`cout_unitaire_destination` double
+  ,`ratio_conversion` double
+  ,`cout_total` double
+  ,`motif` text
+  ,`statut` varchar(50)
+  ,`created_at` timestamp
+  ,`created_by` varchar(50)
+  ,`validated_at` datetime
+  ,`validated_by` varchar(50)
+  ,`cancelled_at` datetime
+  ,`cancelled_by` varchar(50)
+  );
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Doublure de structure pour la vue `v_historique_paiements`
+  -- (Voir ci-dessous la vue réelle)
+  --
+> CREATE TABLE `v_historique_paiements` (
+  `id` int(11)
+  ,`numero_paiement` varchar(50)
+  ,`date_paiement` date
+  ,`bl_id` int(11)
+  ,`numero_bl` varchar(50)
+  ,`date_bl` date
+  ,`montant_bl` double
+  ,`fournisseur_id` int(11)
+  ,`nom_fournisseur` varchar(255)
+  ,`montant_paye` double
+  ,`mode_paiement` enum('Chèque','Espèces','Mobile Money','Virement','TPE')
+  ,`reference_paiement` varchar(100)
+  ,`observation` text
+  ,`created_by` varchar(100)
+  ,`created_at` timestamp
+  ,`numero_versement` bigint(22)
+  );
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Doublure de structure pour la vue `v_situation_bl`
+  -- (Voir ci-dessous la vue réelle)
+  --
+> CREATE TABLE `v_situation_bl` (
+  `bl_id` int(11)
+  ,`numero_bl` varchar(50)
+  ,`date_bl` date
+  ,`fournisseur_id` int(11)
+  ,`nom_fournisseur` varchar(255)
+  ,`montant_bl` double
+  ,`montant_deductions` double
+  ,`montant_net` double
+  ,`montant_paye` double
+  ,`solde_restant` double
+  ,`nb_paiements` bigint(21)
+  ,`statut_paiement` varchar(18)
+  );
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Doublure de structure pour la vue `v_stats_deconditionnement_articles`
+  -- (Voir ci-dessous la vue réelle)
+  --
+> CREATE TABLE `v_stats_deconditionnement_articles` (
+  `article_id` int(11)
+  ,`designation` varchar(150)
+  ,`nb_operations_source` bigint(21)
+  ,`nb_operations_destination` bigint(21)
+  ,`total_deconditionne` double
+  ,`total_cree` double
+  );
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Doublure de structure pour la vue `v_stats_deconditionnement_globales`
+  -- (Voir ci-dessous la vue réelle)
+  --
+> CREATE TABLE `v_stats_deconditionnement_globales` (
+  `statut` varchar(50)
+  ,`nombre_operations` bigint(21)
+  ,`valeur_totale` double
+  );
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la vue `v_deductions_bl`
+  --
+  DROP TABLE IF EXISTS `v_deductions_bl`;
+  
+  CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_deductions_bl`  AS SELECT `bl`.`id` AS `bl_id`, `bl`.`numero_bl` AS `numero_bl`, `av`.`numero_avoir` AS `numero_avoir`, `av`.`date_avoir` AS `date_avoir`, `br`.`numero_br` AS `numero_br`, `ad`.`article_id` AS `article_id`, `art`.`designation` AS `designation`, `ad`.`quantite` AS `quantite`, cast(`ad`.`prix_unitaire` as double) AS `prix_unitaire`, cast(`ad`.`total_ligne` as double) AS `montant_deduction` FROM ((((`stock_bons_livraison` `bl` join `stock_bons_retour` `br` on(`br`.`bl_id` = `bl`.`id`)) join `stock_avoirs_fournisseurs` `av` on(`av`.`br_id` = `br`.`id`)) join `stock_avoir_details` `ad` on(`ad`.`avoir_id` = `av`.`id`)) join `stock_articles` `art` on(`ad`.`article_id` = `art`.`id`)) WHERE `ad`.`motif` = 'Déduit facture' AND `av`.`statut` = 'Validé' ;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la vue `v_historique_deconditionnements`
+  --
+  DROP TABLE IF EXISTS `v_historique_deconditionnements`;
+  
+  CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_historique_deconditionnements`  AS SELECT `d`.`id` AS `id`, `d`.`numero_operation` AS `numero_operation`, `d`.`date_operation` AS `date_operation`, `d`.`article_source_id` AS `article_source_id`, `asrc`.`designation` AS `designation_source`, `asrc`.`cip` AS `cip_source`, `rsrc`.`libelle` AS `rayon_source`, cast(`asrc`.`quantite_stock` as double) AS `stock_actuel_source`, `d`.`quantite_source` AS `quantite_source`, `d`.`unite_source` AS `unite_source`, `d`.`cout_unitaire_source` AS `cout_unitaire_source`, `d`.`article_destination_id` AS `article_destination_id`, `adest`.`designation` AS `designation_destination`, `adest`.`cip` AS `cip_destination`, `rdest`.`libelle` AS `rayon_destination`, cast(`adest`.`quantite_stock` as double) AS `stock_actuel_destination`, `d`.`quantite_destination` AS `quantite_destination`, `d`.`unite_destination` AS `unite_destination`, `d`.`cout_unitaire_destination` AS `cout_unitaire_destination`, `d`.`ratio_conversion` AS `ratio_conversion`, `d`.`cout_total` AS `cout_total`, `d`.`motif` AS `motif`, `d`.`statut` AS `statut`, `d`.`created_at` AS `created_at`, `d`.`created_by` AS `created_by`, `d`.`validated_at` AS `validated_at`, `d`.`validated_by` AS `validated_by`, `d`.`cancelled_at` AS `cancelled_at`, `d`.`cancelled_by` AS `cancelled_by` FROM ((((`stock_deconditionnements` `d` left join `stock_articles` `asrc` on(`d`.`article_source_id` = `asrc`.`id`)) left join `stock_rayons` `rsrc` on(`asrc`.`rayon_id` = `rsrc`.`id`)) left join `stock_articles` `adest` on(`d`.`article_destination_id` = `adest`.`id`)) left join `stock_rayons` `rdest` on(`adest`.`rayon_id` = `rdest`.`id`)) ;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la vue `v_historique_paiements`
+  --
+  DROP TABLE IF EXISTS `v_historique_paiements`;
+  
+  CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_historique_paiements`  AS SELECT `p`.`id` AS `id`, `p`.`numero_paiement` AS `numero_paiement`, `p`.`date_paiement` AS `date_paiement`, `p`.`bl_id` AS `bl_id`, `bl`.`numero_bl` AS `numero_bl`, `bl`.`date_bl` AS `date_bl`, cast(`bl`.`montant_total` as double) AS `montant_bl`, `p`.`fournisseur_id` AS `fournisseur_id`, `f`.`nom` AS `nom_fournisseur`, cast(`p`.`montant_paye` as double) AS `montant_paye`, `p`.`mode_paiement` AS `mode_paiement`, `p`.`reference_paiement` AS `reference_paiement`, `p`.`observation` AS `observation`, `p`.`created_by` AS `created_by`, `p`.`created_at` AS `created_at`, (select count(0) + 1 from `stock_paiements_fournisseurs` `p2` where `p2`.`bl_id` = `p`.`bl_id` and `p2`.`id` < `p`.`id`) AS `numero_versement` FROM ((`stock_paiements_fournisseurs` `p` join `stock_bons_livraison` `bl` on(`p`.`bl_id` = `bl`.`id`)) join `stock_fournisseurs` `f` on(`p`.`fournisseur_id` = `f`.`id`)) ORDER BY `p`.`date_paiement` DESC, `p`.`created_at` DESC ;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la vue `v_situation_bl`
+  --
+  DROP TABLE IF EXISTS `v_situation_bl`;
+  
+  CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_situation_bl`  AS SELECT `bl`.`id` AS `bl_id`, `bl`.`numero_bl` AS `numero_bl`, `bl`.`date_bl` AS `date_bl`, `bl`.`fournisseur_id` AS `fournisseur_id`, `f`.`nom` AS `nom_fournisseur`, cast(`bl`.`montant_total` as double) AS `montant_bl`, cast(coalesce((select sum(`ad`.`total_ligne`) from ((`stock_avoirs_fournisseurs` `av` join `stock_avoir_details` `ad` on(`av`.`id` = `ad`.`avoir_id`)) join `stock_bons_retour` `br` on(`av`.`br_id` = `br`.`id`)) where `br`.`bl_id` = `bl`.`id` and `ad`.`motif` = 'Déduit facture' and `av`.`statut` = 'Validé'),0) as double) AS `montant_deductions`, cast(`bl`.`montant_total` - coalesce((select sum(`ad`.`total_ligne`) from ((`stock_avoirs_fournisseurs` `av` join `stock_avoir_details` `ad` on(`av`.`id` = `ad`.`avoir_id`)) join `stock_bons_retour` `br` on(`av`.`br_id` = `br`.`id`)) where `br`.`bl_id` = `bl`.`id` and `ad`.`motif` = 'Déduit facture' and `av`.`statut` = 'Validé'),0) as double) AS `montant_net`, cast(coalesce((select sum(`stock_paiements_fournisseurs`.`montant_paye`) from `stock_paiements_fournisseurs` where `stock_paiements_fournisseurs`.`bl_id` = `bl`.`id`),0) as double) AS `montant_paye`, cast(`bl`.`montant_total` - coalesce((select sum(`ad`.`total_ligne`) from ((`stock_avoirs_fournisseurs` `av` join `stock_avoir_details` `ad` on(`av`.`id` = `ad`.`avoir_id`)) join `stock_bons_retour` `br` on(`av`.`br_id` = `br`.`id`)) where `br`.`bl_id` = `bl`.`id` and `ad`.`motif` = 'Déduit facture' and `av`.`statut` = 'Validé'),0) - coalesce((select sum(`stock_paiements_fournisseurs`.`montant_paye`) from `stock_paiements_fournisseurs` where `stock_paiements_fournisseurs`.`bl_id` = `bl`.`id`),0) as double) AS `solde_restant`, coalesce((select count(0) from `stock_paiements_fournisseurs` where `stock_paiements_fournisseurs`.`bl_id` = `bl`.`id`),0) AS `nb_paiements`, CASE WHEN coalesce((select sum(`stock_paiements_fournisseurs`.`montant_paye`) from `stock_paiements_fournisseurs` where `stock_paiements_fournisseurs`.`bl_id` = `bl`.`id`),0) = 0 THEN 'Non payé' WHEN coalesce((select sum(`stock_paiements_fournisseurs`.`montant_paye`) from `stock_paiements_fournisseurs` where `stock_paiements_fournisseurs`.`bl_id` = `bl`.`id`),0) >= `bl`.`montant_total` - coalesce((select sum(`ad`.`total_ligne`) from ((`stock_avoirs_fournisseurs` `av` join `stock_avoir_details` `ad` on(`av`.`id` = `ad`.`avoir_id`)) join `stock_bons_retour` `br` on(`av`.`br_id` = `br`.`id`)) where `br`.`bl_id` = `bl`.`id` AND `ad`.`motif` = 'Déduit facture' AND `av`.`statut` = 'Validé'),0) - 0.5 THEN 'Payé' ELSE 'Partiellement payé' END AS `statut_paiement` FROM (`stock_bons_livraison` `bl` left join `stock_fournisseurs` `f` on(`bl`.`fournisseur_id` = `f`.`id`)) ;
+  
+  -- --------------------------------------------------------
+  
+  --
+  -- Structure de la vue `v_stats_deconditionnement_articles`
+  --
+  DROP TABLE IF EXISTS `v_stats_deconditionnement_articles`;
+  
+  CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_stats_deconditionnement_articles`  AS SELECT `asrc`.`id` AS `article_id`, `asrc`.`designation` AS `designation`, count(case when `d`.`article_source_id` = `asrc`.`id` then 1 end) AS `nb_operations_source`, count(case when `d`.`article_destination_id` = `asrc`.`id` then 1 end) AS `nb_operations_destination`, cast(sum(case when `d`.`article_source_id` = `asrc`.`id` then `d`.`quantite_source` else 0 end) as double) AS `total_deconditionne`, cast(sum(case when `d`.`article_destination_id` = `asrc`.`id` then `d`.`quantite_destination` else 0 end) as double) AS `total_cree` FROM (`stock_articles` `asrc` join `stock_deconditionnements` `d` on(`d`.`article_source_id` = `asrc`.`id` or `d`.`article_destination_id` = `asrc`.`id`)) WHERE `d`.`statut` = 'Validé' GROUP BY `asrc`.`id`, `asrc`.`designation` ;
+  
+
