@@ -12,7 +12,6 @@ import FactureAssurance from "./FactureAssurance";
 
 import Decaissement from "./Decaissement";
 import Versement from "./Versement";
-import Commande from "./Commande";
 
 export default function BillingMain({ currentUser }: { currentUser?: any }) {
     const [view, setView] = useState('caisse');
@@ -70,7 +69,6 @@ export default function BillingMain({ currentUser }: { currentUser?: any }) {
 
     const menuItems = [
         { id: 'caisse', label: '🏪 Caisse POS', icon: '🏪' },
-        { id: 'commande', label: '📦 Commandes', icon: '📦' },
         { id: 'transfert', label: '🔁 Caisse de Transfert', icon: '🔁' },
         { id: 'ventes', label: '🧾 Liste Ventes', icon: '🧾' },
         { id: 'recouvrement', label: '💸 Recouvrement', icon: '💸' },
@@ -207,7 +205,6 @@ export default function BillingMain({ currentUser }: { currentUser?: any }) {
                         </div>
                     )}
                     {view === 'caisse' && <Caisse softwareDate={softwareDate} currentUser={user} />}
-                    {view === 'commande' && <Commande currentUser={user} />}
                     {view === 'transfert' && <CaisseTransfertView />}
                     {view === 'ventes' && <ListeVentes softwareDate={softwareDate} setView={setView} currentUser={user} />}
                     {view === 'cloture' && <ClotureJournee currentUser={user} />}
