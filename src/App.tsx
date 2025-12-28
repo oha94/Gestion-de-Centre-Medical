@@ -2,6 +2,7 @@ import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "./lib/db";
 import DatabaseConfig from "./views/setup/DatabaseConfig"; // New import
 import Setup from "./views/Setup"; // Setup wizard
+import { useTheme } from "./contexts/ThemeContext";
 
 
 // --- IMPORTATION DES VUES ---
@@ -20,6 +21,7 @@ import DateSystemeBanner from "./components/DateSystemeBanner";
 import LoginView from "./views/Login";
 
 export default function App() {
+  const { theme } = useTheme();
   const [view, setView] = useState("dashboard");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<any>(null);
@@ -555,7 +557,12 @@ export default function App() {
   return (
     <div style={layoutStyle}>
       <nav
-        style={{ ...sidebarStyle, width: isSidebarExpanded ? '260px' : '70px', transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}
+        style={{
+          ...sidebarStyle,
+          background: theme.gradient,
+          width: isSidebarExpanded ? '260px' : '70px',
+          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+        }}
       >
         <div style={{ ...brandBoxStyle, padding: isSidebarExpanded ? '20px' : '20px 5px', flexDirection: 'row', justifyContent: isSidebarExpanded ? 'space-between' : 'center' }}>
           {isSidebarExpanded && (
@@ -632,6 +639,7 @@ export default function App() {
 }
 
 function MenuBtn({ label, id, active, onClick, color, expanded }: any) {
+  const { theme } = useTheme();
   const isSelected = active === id;
   // Fallback icon extraction (first 2 chars assuming emoji) or just standard split
   // Our system uses "Emoji Title", so splitting by space might usually work, but emoji length varies.
@@ -644,7 +652,7 @@ function MenuBtn({ label, id, active, onClick, color, expanded }: any) {
       title={label}
       style={{
         ...navBtnStyle,
-        backgroundColor: isSelected ? (color || '#3498db') : 'transparent',
+        backgroundColor: isSelected ? theme.primaryColor : 'transparent',
         color: isSelected ? 'white' : '#ecf0f1',
         justifyContent: expanded ? 'flex-start' : 'center',
         whiteSpace: 'nowrap',
@@ -658,7 +666,7 @@ function MenuBtn({ label, id, active, onClick, color, expanded }: any) {
 }
 
 const layoutStyle: CSSProperties = { display: 'flex', height: '100vh', backgroundColor: '#f4f7f6' };
-const sidebarStyle: CSSProperties = { backgroundColor: '#2c3e50', color: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 1000, boxShadow: '2px 0 5px rgba(0,0,0,0.1)' };
+const sidebarStyle: CSSProperties = { color: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 1000, boxShadow: '4px 0 20px rgba(102, 126, 234, 0.15)' };
 const brandBoxStyle: CSSProperties = { minHeight: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid #34495e', overflow: 'hidden' };
 const menuContainerStyle: CSSProperties = { display: 'flex', flexDirection: 'column', padding: '10px', flex: 1, overflowY: 'auto', overflowX: 'hidden' };
 const sectionTitleStyle: CSSProperties = { fontSize: '0.7rem', color: '#7f8c8d', letterSpacing: '1px', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', transition: 'all 0.3s' };

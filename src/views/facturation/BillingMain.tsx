@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { getDb } from "../../lib/db";
 import { DateTravailManager } from "../../services/DateTravailManager";
 import { DateSystemeService } from "../../services/DateSystemeService";
+import { useTheme } from "../../contexts/ThemeContext";
 import Caisse from "./Caisse";
 import Recouvrement from "./Recouvrement";
 import CaisseTransfertView from "./CaisseTransfert";
@@ -14,6 +15,7 @@ import Decaissement from "./Decaissement";
 import Versement from "./Versement";
 
 export default function BillingMain({ currentUser }: { currentUser?: any }) {
+    const { theme } = useTheme();
     const [view, setView] = useState('caisse');
     const [user, setUser] = useState<any>(currentUser || null);
     const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -88,12 +90,12 @@ export default function BillingMain({ currentUser }: { currentUser?: any }) {
             {/* SIDEBAR */}
             <div style={{
                 width: isSidebarCollapsed ? '70px' : '240px',
-                background: '#2c3e50',
+                background: theme.gradient,
                 color: 'white',
                 display: 'flex',
                 flexDirection: 'column',
                 transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: '2px 0 10px rgba(0,0,0,0.1)',
+                boxShadow: '4px 0 20px rgba(102, 126, 234, 0.15)',
                 zIndex: 10
             }}>
                 <div style={{ padding: '20px 15px', borderBottom: '1px solid #34495e', display: 'flex', justifyContent: isSidebarCollapsed ? 'center' : 'space-between', alignItems: 'center' }}>
@@ -114,7 +116,7 @@ export default function BillingMain({ currentUser }: { currentUser?: any }) {
                                 style={{
                                     width: '100%',
                                     padding: '12px',
-                                    background: active ? '#3498db' : 'transparent',
+                                    background: active ? theme.primaryColor : 'transparent',
                                     color: active ? 'white' : '#ecf0f1',
                                     border: 'none',
                                     borderRadius: '8px',
