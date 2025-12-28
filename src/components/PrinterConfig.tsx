@@ -3,7 +3,7 @@ import { getDb } from '../lib/db';
 
 export default function PrinterConfig() {
     const [printers, setPrinters] = useState<string[]>([]);
-    const [caisseP printer, setCaissePrinter] = useState('');
+    const [caissePrinter, setCaissePrinter] = useState('');
     const [documentPrinter, setDocumentPrinter] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
