@@ -146,7 +146,7 @@ export default function StockMainView({ currentUser }: { currentUser?: any }) {
                     style={{
                       padding: '12px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       color: '#bdc3c7', fontSize: '14px', transition: 'background 0.2s',
-                      background: isOpen && !isSidebarCollapsed ? '#34495e' : 'transparent'
+                      background: isOpen && !isSidebarCollapsed ? 'rgba(0, 0, 0, 0.2)' : 'transparent'
                     }}
                     onMouseEnter={e => e.currentTarget.style.color = 'white'}
                     onMouseLeave={e => e.currentTarget.style.color = '#bdc3c7'}
@@ -163,7 +163,7 @@ export default function StockMainView({ currentUser }: { currentUser?: any }) {
                     maxHeight: (isOpen && !isSidebarCollapsed) ? '500px' : '0',
                     overflow: 'hidden',
                     transition: 'max-height 0.3s ease-in-out',
-                    background: '#212f3d'
+                    background: 'rgba(0, 0, 0, 0.3)'
                   }}>
                     {item.children.map(sub => (
                       <div
