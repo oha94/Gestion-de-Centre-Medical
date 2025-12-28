@@ -513,11 +513,11 @@ export default function App() {
   // Modal de clôture obligatoire
   if (showClotureAlert) {
     return (
-      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-        <div style={{ background: 'white', borderRadius: '20px', padding: '40px', maxWidth: '600px', width: '90%', boxShadow: '0 10px 50px rgba(0,0,0,0.3)' }}>
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+        <div style={{ background: 'white', borderRadius: '20px', padding: '50px', maxWidth: '650px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.5)', border: '3px solid #e74c3c' }}>
           <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-            <div style={{ fontSize: '4rem', marginBottom: '20px' }}>⚠️</div>
-            <h2 style={{ margin: '0 0 15px 0', color: '#e74c3c', fontSize: '1.8rem' }}>Clôture Obligatoire</h2>
+            <div style={{ fontSize: '5rem', marginBottom: '25px' }}>🔒</div>
+            <h2 style={{ margin: '0 0 20px 0', color: '#e74c3c', fontSize: '2rem', fontWeight: 'bold' }}>CLÔTURE OBLIGATOIRE</h2>
             <p style={{ color: '#7f8c8d', fontSize: '1.1rem', lineHeight: '1.6' }}>
               La date système ({new Date(dateSysteme).toLocaleDateString('fr-FR')}) est différente de la date de l'ordinateur ({new Date(dateOrdinateur).toLocaleDateString('fr-FR')}).
             </p>
@@ -527,18 +527,24 @@ export default function App() {
           </div>
           <button
             onClick={() => {
-              setShowClotureAlert(false);
+              // Ne pas fermer le modal, juste changer la vue vers la clôture
               setView('caisse');
-              // Rediriger vers la page de clôture après authentification
-              setTimeout(() => {
-                const billingLink = document.querySelector('[data-view="caisse"]') as HTMLElement;
-                if (billingLink) billingLink.click();
-              }, 100);
             }}
-            style={{ width: '100%', padding: '15px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '10px', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer' }}
+            style={{ width: '100%', padding: '18px', background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)', color: 'white', border: 'none', borderRadius: '12px', fontSize: '1.3rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 15px rgba(231, 76, 60, 0.4)' }}
           >
-            🔒 Accéder à la Clôture
+            🔒 Accéder à la Clôture Maintenant
           </button>
+          <p style={{
+            textAlign: 'center',
+            color: '#95a5a6',
+            fontSize: '0.9rem',
+            marginTop: '20px',
+            fontStyle: 'italic',
+            borderTop: '1px solid #ecf0f1',
+            paddingTop: '15px'
+          }}>
+            ⚠️ Cette fenêtre ne peut pas être fermée. Vous devez clôturer pour continuer à travailler.
+          </p>
         </div>
       </div>
     );

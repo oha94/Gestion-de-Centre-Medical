@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getDb } from "../../lib/db";
 import { DateTravailManager } from "../../services/DateTravailManager";
+import { DateSystemeService } from "../../services/DateSystemeService";
 import Caisse from "./Caisse";
 import Recouvrement from "./Recouvrement";
 import CaisseTransfertView from "./CaisseTransfert";
@@ -19,6 +20,8 @@ export default function BillingMain({ currentUser }: { currentUser?: any }) {
     const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [softwareDate, setSoftwareDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [clotureRequise, setClotureRequise] = useState(false);
+    const [messageBloquage, setMessageBloquage] = useState('');
 
     useEffect(() => {
         if (currentUser) setUser(currentUser);
@@ -41,6 +44,16 @@ export default function BillingMain({ currentUser }: { currentUser?: any }) {
                 // Load software date (date travail)
                 const dateTravail = await DateTravailManager.getDateTravail();
                 if (dateTravail) setSoftwareDate(dateTravail);
+
+                // Vérifier si la clôture est requise
+                const verification = await DateSystemeService.verifierAvantAction();
+                if (!verification.autorise) {
+                    setClotureRequise(true);
+                    setMessageBloquage(verification.message);
+                } else {
+                    setClotureRequise(false);
+                    setMessageBloquage('');
+                }
 
             } catch (e) { console.error("Time check failed", e); }
         };
@@ -145,6 +158,54 @@ export default function BillingMain({ currentUser }: { currentUser?: any }) {
 
                 {/* VIEW AREA */}
                 <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+                    {/* Bannière de blocage si clôture requise */}
+                    {clotureRequise && view !== 'cloture' && (
+                        <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: 'rgba(255, 255, 255, 0.98)',
+                            zIndex: 1000,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backdropFilter: 'blur(5px)'
+                        }}>
+                            <div style={{
+                                background: 'white',
+                                border: '3px solid #e74c3c',
+                                borderRadius: '20px',
+                                padding: '50px',
+                                maxWidth: '600px',
+                                boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+                                textAlign: 'center'
+                            }}>
+                                <div style={{ fontSize: '5rem', marginBottom: '20px' }}>🔒</div>
+                                <h2 style={{ color: '#e74c3c', fontSize: '2rem', marginBottom: '20px' }}>MODULE BLOQUÉ</h2>
+                                <p style={{ color: '#2c3e50', fontSize: '1.2rem', lineHeight: '1.8', marginBottom: '30px', whiteSpace: 'pre-line' }}>
+                                    {messageBloquage}
+                                </p>
+                                <button
+                                    onClick={() => setView('cloture')}
+                                    style={{
+                                        padding: '18px 40px',
+                                        background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '12px',
+                                        fontSize: '1.2rem',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        boxShadow: '0 4px 15px rgba(231, 76, 60, 0.4)'
+                                    }}
+                                >
+                                    🔒 Aller à la Clôture
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {view === 'caisse' && <Caisse softwareDate={softwareDate} currentUser={user} />}
                     {view === 'commande' && <Commande currentUser={user} />}
                     {view === 'transfert' && <CaisseTransfertView />}

@@ -135,9 +135,12 @@ export default function ClotureJournee({ currentUser }: { currentUser?: any }) {
                 SET date_systeme_actuelle = ?, derniere_cloture = ?
             `, [dateNouvelle, dateSysteme]);
 
-            alert(`✅ Clôture effectuée avec succès !\n\nNouvelle date système : ${new Date(dateNouvelle).toLocaleDateString('fr-FR')}`);
+            alert(`✅ Clôture effectuée avec succès !\n\nNouvelle date système : ${new Date(dateNouvelle).toLocaleDateString('fr-FR')}\n\nL'application va se recharger...`);
 
-            chargerDonnees();
+            // Recharger l'application pour mettre à jour toutes les vérifications
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
         } catch (e) {
             console.error(e);
             alert("❌ Erreur lors de la clôture");
