@@ -96,7 +96,6 @@ export default function Login({ onLoginSuccess, config }: LoginProps) {
                         <div style={iconPlaceholderStyle}>🏥</div>
                     )}
                     <h1 style={titleStyle}>{nomEntreprise}</h1>
-                    <p style={subtitleStyle}>Système de Gestion</p>
                 </div>
 
                 {/* Formulaire de connexion */}
@@ -186,7 +185,9 @@ const containerStyle: React.CSSProperties = {
     alignItems: "center",
     background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
     fontFamily: "'Inter', 'Segoe UI', sans-serif",
-    position: "relative",
+    position: "fixed",
+    top: 0,
+    left: 0,
     overflow: "hidden"
 };
 
@@ -225,13 +226,6 @@ const titleStyle: React.CSSProperties = {
     fontSize: "28px",
     fontWeight: "700",
     letterSpacing: "-0.5px"
-};
-
-const subtitleStyle: React.CSSProperties = {
-    color: "#7f8c8d",
-    fontSize: "15px",
-    margin: 0,
-    fontWeight: "500"
 };
 
 const formStyle: React.CSSProperties = {
