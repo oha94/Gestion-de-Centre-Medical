@@ -1,6 +1,8 @@
 import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "./lib/db";
 import DatabaseConfig from "./views/setup/DatabaseConfig"; // New import
+import Setup from "./views/Setup"; // Setup wizard
+
 
 // --- IMPORTATION DES VUES ---
 import DashboardView from "./views/Dashboard";
@@ -43,6 +45,7 @@ export default function App() {
     localStorage.setItem("app_sidebar_expanded", String(newState));
   };
   const [isDbConfigured, setIsDbConfigured] = useState(true); // Assume configured initially
+  const [setupCompleted, setSetupCompleted] = useState(true); // Assume setup completed initially
 
   useEffect(() => {
     checkDbConfiguration();
@@ -50,7 +53,32 @@ export default function App() {
 
   const checkDbConfiguration = async () => {
     try {
-      await getDb(); // Will throw if not configured or connection fails
+      const db = await getDb(); // Will throw if not configured or connection fails
+
+
+      // Check if setup is completed (DÉSACTIVÉ EN MODE DEV)
+      // Pour activer le setup wizard, décommenter le code ci-dessous et mettre DEV_MODE = false
+      /*
+      try {
+        const setupCheck: any[] = await db.select(
+          'SELECT setup_completed FROM app_parametres_app WHERE id = 1'
+        );
+
+        if (setupCheck.length > 0 && setupCheck[0].setup_completed === 0) {
+          setSetupCompleted(false);
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        // If table doesn't exist or column doesn't exist, assume setup not completed
+        console.log('Setup check failed, assuming not completed:', e);
+        setSetupCompleted(false);
+        setLoading(false);
+        return;
+      }
+      */
+
+
       initialiserGénéral();
     } catch (e: any) {
       console.error("DB Check Failed:", e);
@@ -470,6 +498,13 @@ export default function App() {
       setIsDbConfigured(true);
       setLoading(true);
       initialiserGénéral();
+    }} />;
+  }
+
+  if (!setupCompleted) {
+    return <Setup onComplete={() => {
+      setSetupCompleted(true);
+      window.location.reload(); // Reload to reinitialize everything
     }} />;
   }
 

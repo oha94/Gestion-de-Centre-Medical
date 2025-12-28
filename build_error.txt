@@ -1,0 +1,11 @@
+[36mvite v7.3.0 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32mÔ£ô[39m 3 modules transformed.
+Ô£ù Build failed in 118ms
+error during build:
+Could not resolve "./index.css" from "src/main.tsx"
+file: C:/Projets/CentreMedical/src/main.tsx
+    at getRollupError (file:///C:/Projets/CentreMedical/node_modules/rollup/dist/es/shared/parseAst.js:401:41)
+    at error (file:///C:/Projets/CentreMedical/node_modules/rollup/dist/es/shared/parseAst.js:397:42)
+    at ModuleLoader.handleInvalidResolvedId (file:///C:/Projets/CentreMedical/node_modules/rollup/dist/es/shared/node-entry.js:21661:24)
+    at file:///C:/Projets/CentreMedical/node_modules/rollup/dist/es/shared/node-entry.js:21621:26

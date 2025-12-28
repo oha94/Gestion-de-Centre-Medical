@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import SetupService from '../services/SetupService';
 import '../styles/Setup.css';
 
-export default function Setup() {
-    const navigate = useNavigate();
+interface SetupProps {
+    onComplete: () => void;
+}
+
+export default function Setup({ onComplete }: SetupProps) {
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -119,7 +121,7 @@ export default function Setup() {
     };
 
     const handleFinish = () => {
-        navigate('/login');
+        onComplete();
     };
 
     const getPasswordStrength = (password: string): string => {
