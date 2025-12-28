@@ -138,7 +138,14 @@ export default function ThemeCustomizer() {
                             }}
                             title={preset.name}
                         >
-                            <div style={presetNameStyle}>{preset.name}</div>
+                            <div style={{
+                                background: 'rgba(0, 0, 0, 0.5)',
+                                padding: '10px 16px',
+                                borderRadius: '8px',
+                                backdropFilter: 'blur(4px)'
+                            }}>
+                                <div style={presetNameStyle}>{preset.name}</div>
+                            </div>
                         </button>
                     ))}
                 </div>
@@ -337,6 +344,7 @@ const presetButtonStyle: React.CSSProperties = {
 const presetNameStyle: React.CSSProperties = {
     color: 'white',
     fontSize: '14px',
-    fontWeight: '600',
-    textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+    fontWeight: '700',
+    textShadow: '0 3px 8px rgba(0,0,0,0.8), 0 1px 3px rgba(0,0,0,0.9)',
+    letterSpacing: '0.5px'
 };
