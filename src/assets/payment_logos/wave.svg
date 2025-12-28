@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Official Wave Blue Background -->
+  <rect width="100" height="100" fill="#1da1f2" rx="20" />
+  
+  <!-- Penguin Body -->
+  <path d="M50 20 C35 20 25 35 25 60 C25 80 35 90 50 90 C65 90 75 80 75 60 C75 35 65 20 50 20 Z" fill="black" />
+  
+  <!-- White Belly -->
+  <ellipse cx="50" cy="65" rx="15" ry="20" fill="white" />
+  
+  <!-- Eyes -->
+  <circle cx="43" cy="35" r="3" fill="white" />
+  <circle cx="57" cy="35" r="3" fill="white" />
+  
+  <!-- Beak -->
+  <path d="M45 42 L55 42 L50 48 Z" fill="#ff9900" />
+  
+  <!-- Feet -->
+  <ellipse cx="35" cy="90" rx="8" ry="4" fill="#ff9900" />
+  <ellipse cx="65" cy="90" rx="8" ry="4" fill="#ff9900" />
+  
+  <!-- Waving Hand -->
+  <path d="M25 45 Q10 30 20 25 Q30 20 30 40" fill="black" stroke="black" stroke-width="3"/>
+</svg>

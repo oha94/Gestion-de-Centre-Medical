@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
+  <rect width="200" height="100" fill="black" />
+  
+  <!-- Arrows -->
+  <g transform="translate(20, 20) scale(0.6)">
+    <!-- White Arrow (Up-Right) -->
+    <path d="M20 60 L20 20 L60 20 L60 35 L45 35 L75 65 L65 75 L35 45 L35 60 Z" fill="white" />
+    
+    <!-- Orange Arrow (Down-Left) -->
+    <path d="M80 40 L80 80 L40 80 L40 65 L55 65 L25 35 L35 25 L65 55 L65 40 Z" fill="#ff7900" />
+  </g>
+
+  <!-- Text -->
+  <text x="85" y="45" font-family="Arial, sans-serif" font-size="24" fill="white" font-weight="bold">Orange</text>
+  <text x="85" y="70" font-family="Arial, sans-serif" font-size="24" fill="white" font-weight="bold">Money</text>
+</svg>

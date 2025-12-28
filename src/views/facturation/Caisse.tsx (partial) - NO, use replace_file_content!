@@ -1,0 +1,78 @@
+                                    Merci de votre confiance !
+                            </div>
+                        </div>
+
+                        <div style={{ padding: '15px', background: '#f8f9fa', display: 'flex', gap: '10px' }}>
+                            <button onClick={() => setShowReceiptPreview(false)} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #ddd', background: 'white', cursor: 'pointer' }}>
+                                Annuler
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    await validerPaiement();
+                                    const hasAssurance = panier.some(i => i.useAssurance);
+                                    imprimerRecu(hasAssurance ? 2 : 1);
+                                    setShowReceiptPreview(false);
+                                }}
+                                style={{ flex: 2, padding: '12px', borderRadius: '8px', border: 'none', background: '#27ae60', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+                            >
+                                IMPRIMER & VALIDER
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* BACKDROP */}
+            {(showCartDrawer || showPaymentDrawer) && <div onClick={() => { if (!showPaymentDrawer) setShowCartDrawer(false); setShowPaymentDrawer(false); }} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: 0, background: 'rgba(0,0,0,0.4)', zIndex: 15 }} />}
+        </div>
+    );
+}
+
+// Helper pour l'impression
+const imprimerRecu = (copies: number) => {
+    const content = document.getElementById('receipt-content')?.innerHTML;
+    if (!content) return;
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc) return;
+
+    doc.open();
+    doc.write(`
+        <html>
+            <head>
+                <style>
+                    @page { size: 80mm auto; margin: 0; }
+                    body { font-family: 'Courier New', Courier, monospace; width: 80mm; padding: 5mm; margin: 0; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { font-size: 12px; }
+                    .center { text-align: center; }
+                </style>
+            </head>
+            <body>
+                ${content}
+                ${copies > 1 ? '<div style="page-break-before: always;"></div>' + content : ''}
+                <script>
+                    window.onload = () => {
+                        window.print();
+                        setTimeout(() => { window.frameElement.remove(); }, 1000);
+                    };
+                </script>
+            </body>
+        </html>
+    `);
+    doc.close();
+};
+
+const cardStyle: React.CSSProperties = { padding: '15px', borderRadius: '15px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', cursor: 'pointer', display: 'flex', flexDirection: 'column', height: '140px', transition: 'transform 0.2s', background: 'white' };
+const badgeStyle: React.CSSProperties = { background: '#27ae60', color: 'white', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', fontWeight: 'bold' };
+const inputS: React.CSSProperties = { flex: 1, padding: '15px', borderRadius: '12px', border: '1px solid #ddd', fontSize: '1.1rem' };
+const labelS: React.CSSProperties = { fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px', display: 'block' };
