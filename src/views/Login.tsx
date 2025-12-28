@@ -143,7 +143,7 @@ export default function Login({ onLoginSuccess, config }: LoginProps) {
                         disabled={loading}
                         style={{
                             ...buttonStyle,
-                            backgroundColor: loading ? '#95a5a6' : (config.couleur_primaire || "#3498db"),
+                            backgroundColor: loading ? '#95a5a6' : '#000000',
                             cursor: loading ? 'not-allowed' : 'pointer'
                         }}
                     >
