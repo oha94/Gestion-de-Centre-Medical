@@ -4,6 +4,7 @@ import ApplicationConfig from "./ApplicationConfig";
 import UtilisateursConfig from "./UtilisateursConfig";
 import RolesPermissions from "./RolesPermissions";
 import PersonnelConfig from "./Personnelconfig";
+import ThemeCustomizer from "../../components/ThemeCustomizer";
 import { getDb } from "../../lib/db";
 
 export default function ParametresView() {
@@ -29,6 +30,8 @@ export default function ParametresView() {
         return <EntrepriseConfig />;
       case "application":
         return <ApplicationConfig />;
+      case "apparence":
+        return <ThemeCustomizer />;
       case "utilisateurs":
         return <UtilisateursConfig onChangeView={setActiveSub} />;
       case "roles":
@@ -64,6 +67,14 @@ export default function ParametresView() {
             active={activeSub}
             onClick={setActiveSub}
             icon="🎨"
+          />
+
+          <SubMenuBtn
+            label="Apparence & Thème"
+            id="apparence"
+            active={activeSub}
+            onClick={setActiveSub}
+            icon="🌈"
           />
 
           <div style={dividerStyle}>SÉCURITÉ & ACCÈS</div>
