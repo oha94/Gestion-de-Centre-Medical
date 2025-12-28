@@ -15,18 +15,28 @@ export default function PrinterConfig() {
 
     const loadPrinters = async () => {
         try {
-            // En Tauri, on peut utiliser window.__TAURI__ pour accéder aux imprimantes
-            // Pour l'instant, on simule avec des imprimantes par défaut
-            const availablePrinters = [
-                'Imprimante par défaut',
-                'Microsoft Print to PDF',
-                'Imprimante Thermique POS-80',
-                'HP LaserJet',
-                'Canon PIXMA'
-            ];
-            setPrinters(availablePrinters);
+            // Importer invoke de Tauri
+            const { invoke } = await import('@tauri-apps/api/core');
+
+            // Appeler la commande Tauri pour obtenir les imprimantes
+            const systemPrinters = await invoke<string[]>('get_printers');
+
+            if (systemPrinters && systemPrinters.length > 0) {
+                setPrinters(systemPrinters);
+            } else {
+                // Fallback si aucune imprimante n'est détectée
+                setPrinters([
+                    'Imprimante par défaut',
+                    'Microsoft Print to PDF'
+                ]);
+            }
         } catch (error) {
             console.error('Erreur chargement imprimantes:', error);
+            // Fallback en cas d'erreur
+            setPrinters([
+                'Imprimante par défaut',
+                'Microsoft Print to PDF'
+            ]);
         }
     };
 
