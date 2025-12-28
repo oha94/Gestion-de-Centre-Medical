@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTheme } from "../../contexts/ThemeContext";
 import EntrepriseConfig from "./EntrepriseConfig";
 import ApplicationConfig from "./ApplicationConfig";
 import UtilisateursConfig from "./UtilisateursConfig";
@@ -8,6 +9,7 @@ import ThemeCustomizer from "../../components/ThemeCustomizer";
 import { getDb } from "../../lib/db";
 
 export default function ParametresView() {
+  const { theme } = useTheme();
   const [activeSub, setActiveSub] = useState("entreprise");
   const [appName, setAppName] = useState("FOCOLARI");
 

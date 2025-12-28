@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTheme } from "../../contexts/ThemeContext";
 import CreationProduit from "./CreationProduit";
 import RayonsView from "./Rayons";
 import FournisseursView from "./Fournisseurs";
@@ -28,6 +29,7 @@ const ICONS = {
 };
 
 export default function StockMainView({ currentUser }: { currentUser?: any }) {
+  const { theme } = useTheme();
   const [activeSub, setActiveSub] = useState("catalogue");
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openGroups, setOpenGroups] = useState<{ [key: string]: boolean }>({
@@ -116,17 +118,17 @@ export default function StockMainView({ currentUser }: { currentUser?: any }) {
       {/* --- SMART SIDEBAR --- */}
       <div style={{
         width: isSidebarCollapsed ? '70px' : '260px',
-        background: '#2c3e50',
+        background: theme.gradient,
         color: '#ecf0f1',
         display: 'flex',
         flexDirection: 'column',
         transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        boxShadow: '2px 0 10px rgba(0,0,0,0.1)',
+        boxShadow: '4px 0 20px rgba(102, 126, 234, 0.15)',
         zIndex: 10
       }}>
         {/* HEADER SIDEBAR */}
         <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: isSidebarCollapsed ? 'center' : 'space-between', borderBottom: '1px solid #34495e' }}>
-          {!isSidebarCollapsed && <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#3498db' }}>📦 STOCK</h2>}
+          {!isSidebarCollapsed && <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: 'white' }}>📦 STOCK</h2>}
           <button onClick={toggleSidebar} style={{ background: 'none', border: 'none', color: '#95a5a6', cursor: 'pointer', fontSize: '18px' }}>
             {isSidebarCollapsed ? '»' : '«'}
           </button>
@@ -171,8 +173,8 @@ export default function StockMainView({ currentUser }: { currentUser?: any }) {
                           padding: '10px 10px 10px 55px',
                           cursor: 'pointer',
                           fontSize: '13px',
-                          color: activeSub === sub.id ? '#3498db' : '#95a5a6',
-                          background: activeSub === sub.id ? 'rgba(52, 152, 219, 0.1)' : 'transparent',
+                          color: activeSub === sub.id ? theme.primaryColor : '#95a5a6',
+                          background: activeSub === sub.id ? `rgba(${parseInt(theme.primaryColor.slice(1, 3), 16)}, ${parseInt(theme.primaryColor.slice(3, 5), 16)}, ${parseInt(theme.primaryColor.slice(5, 7), 16)}, 0.1)` : 'transparent',
                           display: 'flex', alignItems: 'center', gap: '10px'
                         }}
                       >
@@ -193,7 +195,7 @@ export default function StockMainView({ currentUser }: { currentUser?: any }) {
                     padding: '12px 20px',
                     cursor: 'pointer',
                     display: 'flex', alignItems: 'center', gap: '15px',
-                    background: isActive ? '#3498db' : 'transparent',
+                    background: isActive ? theme.primaryColor : 'transparent',
                     color: isActive ? 'white' : '#ecf0f1',
                     borderLeft: isActive ? '4px solid #fff' : '4px solid transparent',
                     transition: 'all 0.2s'
