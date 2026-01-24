@@ -2,13 +2,13 @@ import { useState, useEffect, CSSProperties } from "react";
 import { generateTicketHTML, TicketData } from "../../utils/ticketGenerator";
 import { getDb } from "../../lib/db";
 
-const pulseStyle = `
+/* const pulseStyle = `
 @keyframes pulse {
     0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(230, 126, 34, 0.7); }
     70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(230, 126, 34, 0); }
     100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(230, 126, 34, 0); }
 }
-`;
+`; */
 
 // TYPES
 type CartItem = {
@@ -106,6 +106,12 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                         setSelectionType("PATIENT");
                     }
                 }
+
+                if (payload.oldTicketNum) {
+                    console.log("♻️ Sale marked for replacement:", payload.oldTicketNum);
+                    setSaleToReplace(payload.oldTicketNum);
+                }
+
                 delete (window as any).editSalePayload;
             }
         };
@@ -244,9 +250,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             const resSoc = await db.select<any[]>("SELECT * FROM societes WHERE statut = 'actif'");
             setAllSocietes(resSoc);
 
-            // Assurances
-            const resAssur = await db.select<any[]>("SELECT * FROM assurances");
-            setAssurances(resAssur);
+
             try {
                 await db.execute("ALTER TABLE ventes ADD COLUMN societe_nom TEXT");
             } catch (e) { }
@@ -293,15 +297,29 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
 
     const chargerAdmissionsPatient = async (patientId: number) => {
         try {
+            console.log("🔍 Loading admissions for patient:", patientId);
             const db = await getDb();
             const res = await db.select<any[]>(`
             SELECT a.id, a.date_entree, a.nb_jours, l.nom_lit, 
-                   CAST(l.prix_journalier AS CHAR) as prix_journalier, c.nom as nom_chambre
-            FROM admissions a JOIN lits l ON a.lit_id = l.id JOIN chambres c ON l.chambre_id = c.id
-            WHERE a.patient_id = ? AND a.statut = 'en_cours'
+                   CAST(l.prix_journalier AS CHAR) as prix_journalier, c.nom as nom_chambre,
+                   a.statut
+            FROM admissions a 
+            LEFT JOIN lits l ON a.lit_id = l.id 
+            LEFT JOIN chambres c ON l.chambre_id = c.id
+            WHERE a.patient_id = ? 
           `, [patientId]);
-            setAdmissions(res.map(r => ({ ...r, prix_journalier: parseFloat(r.prix_journalier || "0") })));
-        } catch (e) { console.error(e); }
+            console.log("🔍 Raw admissions found:", res);
+            // Filter with case-insensitivity
+            const activeAdmissions = res.filter(r => r.statut?.toLowerCase() === 'en_cours');
+            console.log("🔍 Active admissions:", activeAdmissions);
+
+            setAdmissions(activeAdmissions.map(r => ({
+                ...r,
+                prix_journalier: parseFloat(r.prix_journalier || "0"),
+                nom_chambre: r.nom_chambre || '?',
+                nom_lit: r.nom_lit || '?'
+            })));
+        } catch (e) { console.error("Error loading admissions:", e); }
     };
 
 
@@ -594,22 +612,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         };
     };
 
-    const handlePreviewTicket = () => {
-        // Generate TEMP ticket number for preview
-        const datePart = (softwareDate || new Date().toISOString().split('T')[0]).replace(/-/g, '').slice(2);
-        const ticketNum = `PREVIEW-${datePart}`;
 
-        let finalMode = paymentStrategy === 'CREDIT_TOTAL' ? 'CRÉDIT' : modePaiement1;
-        if (modePaiement1 === 'CASH') finalMode = 'ESPÈCE';
-        if (modePaiement2 !== 'AUCUN' && montantVerse2 > 0) {
-            const mode2Label = modePaiement2 === 'CASH' ? 'ESPÈCE' : modePaiement2;
-            finalMode = `${finalMode} + ${mode2Label}`;
-        }
-
-        const data = prepareTicketData(ticketNum, finalMode);
-        const html = generateTicketHTML(data);
-        setPreviewTicketData(html);
-    };
 
     const imprimerTicketCaisse = (ticketNum: string, modeP: string) => {
         const data = prepareTicketData(ticketNum, modeP);
@@ -1103,7 +1106,6 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                         if (!confirm("⚠️ Montant versé inférieur au montant à payer. Continuer en mode CRÉDIT (Reste à payer) ?")) return;
                     }
                     setShowReceiptPreview(true);
-                    handlePreviewTicket();
                 }} style={{ width: '100%', padding: '18px', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '15px', fontSize: '1.5rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 8px 16px rgba(44, 62, 80, 0.3)' }}>
                     APERÇU AVANT VALIDATION
                 </button>
@@ -1270,7 +1272,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             }
 
             {/* BACKDROP */}
-            <style>{pulseStyle}</style>
+            {/* <style>{pulseStyle}</style> */}
             {(showCartDrawer || showPaymentDrawer || showTransferPanel) && <div onClick={() => { if (!showPaymentDrawer) { setShowCartDrawer(false); setShowTransferPanel(false); } setShowPaymentDrawer(false); }} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: 0, background: 'rgba(0,0,0,0.4)', zIndex: 15 }} />}
         </div >
     );

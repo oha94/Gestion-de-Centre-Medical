@@ -18,27 +18,23 @@ const thStyle = { padding: '12px', textAlign: 'left' as const };
 const tdStyle = { padding: '12px', borderBottom: '1px solid #eee' };
 
 // --- PRINT UTILS ---
-const printReport = (title: string, dates: { start: string, end: string }, columns: string[], subtitle: string | null, rows: any[], rowRenderer: (r: any, i?: number) => string) => {
-    const w = window.open('', '', 'width=900,height=700');
-    if (!w) return;
+// --- PRINT UTILS ---
+// We use a global state for the print preview to avoid prop drilling or portal complexity in this single file architecture
+let setPrintPreview: (content: string | null) => void = () => { };
 
-    w.document.write(`
-        <html>
-        <head>
-            <title>${title}</title>
+const printReport = (title: string, dates: { start: string, end: string }, columns: string[], subtitle: string | null, rows: any[], rowRenderer: (r: any, i?: number) => string) => {
+    const content = `
+        <div class="print-document">
             <style>
-                body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; font-size: 13px; }
                 .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
                 .meta { margin-bottom: 20px; color: #555; text-align: center; font-size: 12px; }
-                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-                th { background: #f0f2f5; text-align: left; padding: 8px; border: 1px solid #ddd; font-size: 12px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+                th { background: #f0f2f5; text-align: left; padding: 8px; border: 1px solid #ddd; }
                 td { padding: 8px; border: 1px solid #ddd; }
                 .footer { margin-top: 30px; font-size: 10px; color: #999; text-align: right; }
             </style>
-        </head>
-        <body>
             <div class="header">
-                <h2 style="margin:0">${title}</h2>
+                <h2 style="margin:0; color: #2c3e50;">${title}</h2>
                 ${subtitle ? `<h4 style="margin:5px 0; color:#555">${subtitle}</h4>` : ''}
             </div>
             <div class="meta">
@@ -57,12 +53,42 @@ const printReport = (title: string, dates: { start: string, end: string }, colum
             <div class="footer">
                 Généré le ${new Date().toLocaleString()}
             </div>
-            <script>window.print();</script>
-        </body>
-        </html>
-    `);
-    w.document.close();
+        </div>
+    `;
+    setPrintPreview(content);
 };
+
+function PrintOverlay({ content, onClose }: { content: string, onClose: () => void }) {
+    if (!content) return null;
+
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'white', zIndex: 99999, overflowY: 'auto' }}>
+            {/* Controls */}
+            <div className="no-print" style={{
+                position: 'fixed', top: '20px', right: '20px',
+                background: 'white', padding: '10px',
+                borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
+                display: 'flex', gap: '10px', zIndex: 100000
+            }}>
+                <button onClick={() => window.print()} style={{ padding: '10px 20px', background: '#3498db', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>🖨️ Imprimer</button>
+                <button onClick={onClose} style={{ padding: '10px 20px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>❌ Fermer</button>
+            </div>
+
+            {/* Print Content */}
+            <div style={{ padding: '40px', maxWidth: '1000px', margin: '0 auto' }}>
+                <style>{`
+                    @media print {
+                        .no-print { display: none !important; }
+                        body > *:not(#print-root) { display: none !important; }
+                        #print-root { display: block !important; position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; padding: 0; background: white; }
+                        @page { margin: 1cm; size: A4; }
+                    }
+                `}</style>
+                <div id="print-root" dangerouslySetInnerHTML={{ __html: content }} />
+            </div>
+        </div>
+    );
+}
 
 // --- COMPONENTS ---
 
@@ -574,32 +600,37 @@ function ReportRevenueByOperator({ onBack }: { onBack: () => void }) {
             try { await db.execute("ALTER TABLE ventes ADD COLUMN part_patient DOUBLE DEFAULT 0"); } catch (e) { }
             try { await db.execute("UPDATE ventes SET part_patient = montant_total WHERE part_patient = 0"); } catch (e) { }
 
-            // Aggregate per user: Sales (Cash), Encaissements (Recouvrement Cash), Decaissements
-            // Note: We use 6 params for dates because we have 3 subqueries using date range
+            // Aggregate per user: Sales (Cash), Encaissements (Recouvrement Cash), Decaissements, Versements
+            // Note: We use 8 params for dates because we have 4 subqueries using date range
             const res = await db.select<any[]>(`
                 SELECT 
                     u.id, 
                     u.nom_complet as name,
                     CAST((SELECT COALESCE(SUM(part_patient),0) FROM ventes v WHERE v.user_id = u.id AND DATE(v.date_vente) BETWEEN ? AND ? AND (v.mode_paiement LIKE 'ESP%CE' OR v.mode_paiement = 'ESPECES')) AS CHAR) as sales_cash,
                     CAST((SELECT COALESCE(SUM(montant),0) FROM caisse_mouvements cm WHERE cm.user_id = u.id AND DATE(cm.date_mouvement) BETWEEN ? AND ? AND cm.type IN ('ENCAISSEMENT_RECOUVREMENT') AND cm.mode_paiement LIKE 'ESP%CES') AS CHAR) as collections,
-                    CAST((SELECT COALESCE(SUM(montant),0) FROM caisse_mouvements cm WHERE cm.user_id = u.id AND DATE(cm.date_mouvement) BETWEEN ? AND ? AND cm.type = 'DECAISSEMENT') AS CHAR) as decaissements
+                    CAST((SELECT COALESCE(SUM(montant),0) FROM caisse_mouvements cm WHERE cm.user_id = u.id AND DATE(cm.date_mouvement) BETWEEN ? AND ? AND cm.type = 'DECAISSEMENT') AS CHAR) as decaissements,
+                    CAST((SELECT COALESCE(SUM(montant),0) FROM caisse_mouvements cm WHERE cm.user_id = u.id AND DATE(cm.date_mouvement) BETWEEN ? AND ? AND cm.type = 'VERSEMENT') AS CHAR) as versements
                 FROM app_utilisateurs u
                 ORDER BY u.nom_complet
-            `, [dates.start, dates.end, dates.start, dates.end, dates.start, dates.end]);
+            `, [dates.start, dates.end, dates.start, dates.end, dates.start, dates.end, dates.start, dates.end]);
 
-            // Filter out users with no activity
             // Filter out users with no activity
             const activeUsers = res.map(r => ({
                 ...r,
                 sales_cash: parseFloat(r.sales_cash || "0"),
                 collections: parseFloat(r.collections || "0"),
-                decaissements: parseFloat(r.decaissements || "0")
-            })).filter(r => r.sales_cash > 0 || r.collections > 0 || r.decaissements > 0)
-                .map(r => ({
-                    ...r,
-                    total_in: r.sales_cash + r.collections,
-                    solde: (r.sales_cash + r.collections) - r.decaissements
-                }));
+                decaissements: parseFloat(r.decaissements || "0"),
+                versements: parseFloat(r.versements || "0")
+            })).filter(r => r.sales_cash > 0 || r.collections > 0 || r.decaissements > 0 || r.versements > 0)
+                .map(r => {
+                    const solde_theorique = (r.sales_cash + r.collections) - r.decaissements;
+                    return {
+                        ...r,
+                        total_in: r.sales_cash + r.collections,
+                        solde: solde_theorique,
+                        ecart: solde_theorique - r.versements
+                    };
+                });
 
             setData(activeUsers);
         } catch (e) {
@@ -613,21 +644,22 @@ function ReportRevenueByOperator({ onBack }: { onBack: () => void }) {
     const handlePrint = () => {
         if (data.length === 0) return alert("Aucune donnée à imprimer");
         const totalSolde = data.reduce((acc, r) => acc + r.solde, 0);
+        const totalEcart = data.reduce((acc, r) => acc + r.ecart, 0);
 
         printReport(
             'Récapitulatif des Recettes par Opérateur',
             dates,
-            ['Opérateur', 'Ventes (Cash)', 'Encaissements', 'Total Entrées', 'Décaissements', 'Solde Théorique'],
-            `Total Solde Période: ${totalSolde.toLocaleString()} F`,
+            ['Opérateur', 'Entrées (Cash)', 'Décaissements', 'Solde Théorique', 'Versements', 'Ecart / Reste'],
+            `Solde Théorique Total: ${totalSolde.toLocaleString()} F | Ecart Total: ${totalEcart.toLocaleString()} F`,
             data,
             (r) => `
                 <tr>
                     <td style="font-weight:bold">${r.name}</td>
-                    <td style="text-align:right; color:#27ae60">${r.sales_cash.toLocaleString()}</td>
-                    <td style="text-align:right; color:#2980b9">${r.collections.toLocaleString()}</td>
-                    <td style="text-align:right; font-weight:bold; background:#f4f6f7">${r.total_in.toLocaleString()}</td>
+                    <td style="text-align:right; color:#27ae60">${r.total_in.toLocaleString()}</td>
                     <td style="text-align:right; color:#c0392b">${r.decaissements.toLocaleString()}</td>
-                    <td style="text-align:right; font-weight:bold; border-left:2px solid #34495e">${r.solde.toLocaleString()} F</td>
+                    <td style="text-align:right; font-weight:bold; background:#f4f6f7">${r.solde.toLocaleString()}</td>
+                    <td style="text-align:right; color:#2980b9; font-weight:bold">${r.versements.toLocaleString()}</td>
+                    <td style="text-align:right; font-weight:bold; color:${r.ecart > 0 ? '#e74c3c' : '#27ae60'}">${r.ecart.toLocaleString()} F</td>
                 </tr>
             `
         );
@@ -651,11 +683,11 @@ function ReportRevenueByOperator({ onBack }: { onBack: () => void }) {
                 <thead>
                     <tr style={{ background: '#16a085', color: 'white' }}>
                         <th style={thStyle}>Opérateur</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Ventes (Cash)</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Encaissements</th>
-                        <th style={{ ...thStyle, textAlign: 'right', background: '#1abc9c' }}>Total Entrées</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>Entrées (Cash)</th>
                         <th style={{ ...thStyle, textAlign: 'right' }}>Décaissements</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Solde Théorique</th>
+                        <th style={{ ...thStyle, textAlign: 'right', background: '#1abc9c' }}>Solde Théorique</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>Versements</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>Ecart / Reste</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -664,11 +696,13 @@ function ReportRevenueByOperator({ onBack }: { onBack: () => void }) {
                             <td style={tdStyle}>
                                 <div style={{ fontWeight: 'bold', color: '#2c3e50' }}>{r.name}</div>
                             </td>
-                            <td style={{ ...tdStyle, textAlign: 'right', color: '#27ae60' }}>{r.sales_cash.toLocaleString()} F</td>
-                            <td style={{ ...tdStyle, textAlign: 'right', color: '#2980b9' }}>{r.collections.toLocaleString()} F</td>
-                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', background: '#f8f9fa' }}>{r.total_in.toLocaleString()} F</td>
-                            <td style={{ ...tdStyle, textAlign: 'right', color: '#c0392b' }}>{r.decaissements.toLocaleString()} F</td>
-                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', fontSize: '15px', color: '#2c3e50' }}>{r.solde.toLocaleString()} F</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', color: '#27ae60' }}>{(r.total_in || 0).toLocaleString()} F</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', color: '#c0392b' }}>{(r.decaissements || 0).toLocaleString()} F</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', background: '#f8f9fa' }}>{(r.solde || 0).toLocaleString()} F</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', color: '#2980b9', fontWeight: 'bold' }}>{(r.versements || 0).toLocaleString()} F</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', fontSize: '15px', color: (r.ecart || 0) > 0 ? '#e74c3c' : '#27ae60' }}>
+                                {(r.ecart || 0).toLocaleString()} F
+                            </td>
                         </tr>
                     ))}
                     {data.length === 0 && !loading && <tr><td colSpan={6} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>Aucune activité trouvée sur cette période</td></tr>}
@@ -1809,6 +1843,13 @@ function AccountingDocuments() {
 
 export default function DocumentsMain() {
     const [subView, setSubView] = useState('dashboard');
+    const [printContent, setPrintContent] = useState<string | null>(null);
+
+    // Wire up the global print function to this component's state
+    useEffect(() => {
+        setPrintPreview = setPrintContent;
+        return () => { setPrintPreview = () => { }; };
+    }, []);
 
     const sidebarStyle = {
         width: '260px', background: 'white', borderRight: '1px solid #e0e0e0',
@@ -1823,6 +1864,9 @@ export default function DocumentsMain() {
 
     return (
         <div style={{ display: 'flex', height: '100%', fontFamily: 'Inter, sans-serif', background: '#f4f6f9' }}>
+            {/* Print Overlay at Root Level */}
+            <PrintOverlay content={printContent!} onClose={() => setPrintContent(null)} />
+
             {/* LEFT SIDEBAR */}
             <div style={sidebarStyle}>
                 <div style={{ padding: '25px 20px', borderBottom: '1px solid #eee' }}>

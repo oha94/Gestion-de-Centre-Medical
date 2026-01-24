@@ -499,8 +499,8 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
           {/* CHART */}
           <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
             <h3 style={{ margin: '0 0 15px 0', fontSize: '15px', color: '#1f2937' }}>📈 Évolution du Chiffre d'Affaires</h3>
-            <div style={{ flex: 1, minHeight: '250px' }}>
-              <ResponsiveContainer width="100%" height="100%">
+            <div style={{ flex: 1, minHeight: '300px' }}>
+              <ResponsiveContainer width="100%" height={300}>
                 <AreaChart data={stats.evolution}>
                   <defs>
                     <linearGradient id="colorCa" x1="0" y1="0" x2="0" y2="1">
@@ -705,6 +705,18 @@ function KpiCard({ title, value, sub, icon, color, onClick, isAlert }: any) {
       <div style={{ fontSize: '22px', fontWeight: '700', color: isAlert ? '#ef4444' : '#111827' }}>{value}</div>
       <div style={{ fontSize: '11px', color: isAlert ? '#f87171' : '#9ca3af', marginTop: '4px' }}>{sub}</div>
       <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: color }}></div>
+    </div>
+  );
+}
+
+function MiniKpi({ title, value, unit = 'Fr', color, icon, onClick }: any) {
+  return (
+    <div onClick={onClick} style={{ background: 'white', padding: '15px', borderRadius: '10px', border: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '12px', cursor: onClick ? 'pointer' : 'default' }}>
+      <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>{icon}</div>
+      <div>
+        <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: '500' }}>{title}</div>
+        <div style={{ fontSize: '16px', fontWeight: '700', color: '#1f2937' }}>{value.toLocaleString()} <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 'normal' }}>{unit}</span></div>
+      </div>
     </div>
   );
 }

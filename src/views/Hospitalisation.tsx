@@ -2,7 +2,7 @@ import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../lib/db";
 
 export default function HospitalisationView() {
-  const [activeTab, setActiveTab] = useState<"catalogue" | "admissions" | "archives">("catalogue");
+  const [activeTab, setActiveTab] = useState<"catalogue" | "admissions" | "archives" | "config_lits">("catalogue");
 
   return (
     <div style={{ padding: '20px', fontFamily: 'Inter, sans-serif', background: '#f8f9fa', minHeight: '100%' }}>
@@ -10,12 +10,14 @@ export default function HospitalisationView() {
         <h1 style={{ margin: 0, color: '#2c3e50' }}>🏨 Hospitalisation</h1>
         <div style={{ display: 'flex', background: 'white', padding: '5px', borderRadius: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
           <button onClick={() => setActiveTab("catalogue")} style={activeTab === "catalogue" ? tabActive : tabNormal}>🛠️ Catalogue & Tarifs</button>
-          <button onClick={() => setActiveTab("admissions")} style={activeTab === "admissions" ? tabActive : tabNormal}>🛏️ Admissions en cours</button>
+          <button onClick={() => setActiveTab("config_lits")} style={activeTab === "config_lits" ? tabActive : tabNormal}>🛏️ Gestion Lits</button>
+          <button onClick={() => setActiveTab("admissions")} style={activeTab === "admissions" ? tabActive : tabNormal}>👨‍⚕️ Admissions en cours</button>
           <button onClick={() => setActiveTab("archives")} style={activeTab === "archives" ? tabActive : tabNormal}>📚 Historique</button>
         </div>
       </div>
 
       {activeTab === "catalogue" && <CatalogueView />}
+      {activeTab === "config_lits" && <ConfigLitsView />}
       {activeTab === "admissions" && <AdmissionsView />}
       {activeTab === "archives" && <ArchivesView />}
     </div>
@@ -152,7 +154,13 @@ function AdmissionsView() {
     setPatients(resP);
     const resCat = await db.select<any[]>("SELECT * FROM prestations WHERE categorie = 'HOSPITALISATION'");
     setCatalog(resCat);
-    const resLits = await db.select<any[]>("SELECT * FROM lits WHERE statut != 'occupe'"); // Only free beds
+    const resLits = await db.select<any[]>(`
+        SELECT l.*, c.nom as nom_chambre 
+        FROM lits l 
+        LEFT JOIN chambres c ON l.chambre_id = c.id 
+        WHERE l.statut != 'occupe'
+        ORDER BY c.nom, l.nom_lit
+    `);
     setLits(resLits);
   };
 
@@ -239,7 +247,7 @@ function AdmissionsView() {
               <select value={selectedLitId} onChange={e => setSelectedLitId(e.target.value)} style={inputStyle}>
                 <option value="">-- Choisir un lit libre --</option>
                 {lits.map(l => (
-                  <option key={l.id} value={l.id}>{l.nom_lit}</option>
+                  <option key={l.id} value={l.id}>{l.nom_chambre} - {l.nom_lit}</option>
                 ))}
               </select>
             </div>
@@ -331,6 +339,231 @@ function ArchivesView() {
   )
 }
 
+// --- SOUS-COMPOSANT : CONFIGURATION LITS (Physique) ---
+function ConfigLitsView() {
+  const [chambres, setChambres] = useState<any[]>([]);
+  const [lits, setLits] = useState<any[]>([]);
+  const [newChambre, setNewChambre] = useState("");
+
+  // Bed Form
+  const [newLit, setNewLit] = useState("");
+  const [selectedChambre, setSelectedChambre] = useState("");
+  const [newLitPrix, setNewLitPrix] = useState<number>(0);
+
+  const loadData = async () => {
+    const db = await getDb();
+    // Load Chambres
+    try {
+      const resC = await db.select<any[]>("SELECT * FROM chambres ORDER BY nom");
+      setChambres(resC);
+    } catch (e) { console.error("Error loading chambres", e); }
+
+    // Load Lits
+    try {
+      const resL = await db.select<any[]>(`
+            SELECT l.*, c.nom as nom_chambre 
+            FROM lits l 
+            LEFT JOIN chambres c ON l.chambre_id = c.id 
+            ORDER BY c.nom, l.nom_lit
+        `);
+      setLits(resL);
+    } catch (e) { console.error("Error loading lits", e); }
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const addChambre = async () => {
+    if (!newChambre) return;
+    try {
+      const db = await getDb();
+      await db.execute("INSERT INTO chambres (nom) VALUES (?)", [newChambre]);
+      setNewChambre("");
+      loadData();
+    } catch (e) { alert("Erreur ajout chambre: " + e); }
+  };
+
+  const addLit = async () => {
+    if (!newLit || !selectedChambre) return alert("Nom du lit et Chambre requis");
+    try {
+      const db = await getDb();
+      await db.execute(
+        "INSERT INTO lits (nom_lit, chambre_id, statut, prix_journalier) VALUES (?, ?, 'disponible', ?)",
+        [newLit, selectedChambre, newLitPrix]
+      );
+      setNewLit("");
+      setNewLitPrix(0);
+      loadData();
+    } catch (e) { alert("Erreur ajout lit: " + e); }
+  };
+
+  const deleteChambre = async (id: number) => {
+    if (!confirm("Supprimer cette chambre ? Cela supprimera aussi les lits associés.")) return;
+    try {
+      const db = await getDb();
+      await db.execute("DELETE FROM lits WHERE chambre_id = ?", [id]); // Cascade manually if needed
+      await db.execute("DELETE FROM chambres WHERE id = ?", [id]);
+      loadData();
+    } catch (e) { alert("Erreur suppression: " + e); }
+  };
+
+  const deleteLit = async (id: number) => {
+    if (!confirm("Supprimer ce lit ?")) return;
+    try {
+      const db = await getDb();
+      await db.execute("DELETE FROM lits WHERE id = ?", [id]);
+      loadData();
+    } catch (e) { alert("Erreur suppression lit: " + e); }
+  };
+
+  const importerDepuisCatalogue = async () => {
+    if (!confirm("⚠️ Cette action va analyser le Catalogue pour créer automatiquement les Chambres et Lits.\n\nConfirmer ?")) return;
+
+    try {
+      const db = await getDb();
+      const catalogue = await db.select<any[]>("SELECT * FROM prestations WHERE categorie = 'HOSPITALISATION' AND libelle LIKE '%Chambre%'");
+
+      if (catalogue.length === 0) return alert("Aucune 'Chambre' trouvée dans le catalogue.");
+
+      let countC = 0;
+      let countL = 0;
+
+      for (const item of catalogue) {
+        // Check if exists
+        const existing = await db.select<any[]>("SELECT id FROM chambres WHERE nom = ?", [item.libelle]);
+        let chambreId;
+
+        if (existing.length > 0) {
+          chambreId = existing[0].id; // Use existing
+        } else {
+          // Create Room
+          const res = await db.execute("INSERT INTO chambres (nom) VALUES (?)", [item.libelle]);
+          chambreId = res.lastInsertId;
+          countC++;
+        }
+
+        // Determine nb beds
+        const name = item.libelle.toLowerCase();
+        let nbLits = 1;
+        if (name.includes("double")) nbLits = 2;
+        else if (name.includes("triple")) nbLits = 3;
+        else if (name.includes("quadruple")) nbLits = 4;
+
+        // Create Beds if they don't exist
+        for (let i = 1; i <= nbLits; i++) {
+          const litName = `Lit ${i}`;
+          const existLit = await db.select<any[]>("SELECT id FROM lits WHERE chambre_id = ? AND nom_lit = ?", [chambreId, litName]);
+
+          if (existLit.length === 0) {
+            await db.execute(
+              "INSERT INTO lits (nom_lit, chambre_id, statut, prix_journalier) VALUES (?, ?, 'disponible', ?)",
+              [litName, chambreId, item.prix_standard]
+            );
+            countL++;
+          }
+        }
+      }
+
+      loadData();
+      alert(`✅ Importation terminée !\n\n🏠 ${countC} Chambres créées\n🛏️ ${countL} Lits ajoutés`);
+
+    } catch (e) { console.error(e); alert("Erreur import: " + e); }
+  };
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+        <h3 style={{ margin: 0 }}>⚙️ Configuration des Lits</h3>
+        <button onClick={importerDepuisCatalogue} style={{ background: '#8e44ad', color: 'white', border: 'none', padding: '10px 15px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
+          🪄 Générer depuis le Catalogue
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
+
+        {/* GESTION CHAMBRES */}
+        <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '10px' }}>
+          <h4 style={{ marginTop: 0 }}>🏠 Chambres</h4>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+            <input
+              placeholder="Nom Chambre..."
+              value={newChambre}
+              onChange={e => setNewChambre(e.target.value)}
+              style={inputStyle}
+            />
+            <button onClick={addChambre} style={btnPlus}>+</button>
+          </div>
+          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+            {chambres.map(c => (
+              <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: 'white', marginBottom: '5px', borderRadius: '5px', border: '1px solid #eee' }}>
+                <span>{c.nom}</span>
+                <button onClick={() => deleteChambre(c.id)} style={{ ...btnDelete, padding: '2px 6px', fontSize: '0.8rem' }}>×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* GESTION LITS */}
+        <div>
+          <h4 style={{ marginTop: 0 }}>🛏️ Lits Physiques</h4>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center' }}>
+            <select value={selectedChambre} onChange={e => setSelectedChambre(e.target.value)} style={{ ...inputStyle, width: '200px' }}>
+              <option value="">Sélectionner Chambre...</option>
+              {chambres.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+            </select>
+            <input
+              placeholder="Nom/Numéro Lit..."
+              value={newLit}
+              onChange={e => setNewLit(e.target.value)}
+              style={inputStyle}
+            />
+            <input
+              type="number"
+              placeholder="Prix/J"
+              value={newLitPrix}
+              onChange={e => setNewLitPrix(parseInt(e.target.value))}
+              style={{ ...inputStyle, width: '100px' }}
+            />
+            <button onClick={addLit} style={btnPlus}>Ajouter Lit</button>
+          </div>
+
+          <table style={tableStyle}>
+            <thead>
+              <tr style={{ background: '#ecf0f1' }}>
+                <th style={tdStyle}>Lit</th>
+                <th style={tdStyle}>Chambre</th>
+                <th style={tdStyle}>Prix / J</th>
+                <th style={tdStyle}>Statut</th>
+                <th style={tdStyle}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lits.map(l => (
+                <tr key={l.id} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={tdStyle}><strong>{l.nom_lit}</strong></td>
+                  <td style={tdStyle}>{l.nom_chambre}</td>
+                  <td style={tdStyle}><strong>{Number(l.prix_journalier || 0).toLocaleString()} F</strong></td>
+                  <td style={tdStyle}>
+                    <span style={{
+                      padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold',
+                      background: l.statut === 'occupe' ? '#fadbd8' : '#d5f5e3',
+                      color: l.statut === 'occupe' ? '#c0392b' : '#27ae60'
+                    }}>
+                      {l.statut?.toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={tdStyle}>
+                    <button onClick={() => deleteLit(l.id)} style={btnDelete}>🗑️</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- STYLES ---
 const cardStyle: CSSProperties = { background: 'white', padding: '20px', borderRadius: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' };
 const inputStyle: CSSProperties = { width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd', boxSizing: 'border-box' };
@@ -343,4 +576,4 @@ const btnPlus: CSSProperties = { background: '#3498db', color: 'white', border: 
 const btnSave: CSSProperties = { background: '#27ae60', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' };
 const btnCancel: CSSProperties = { background: '#95a5a6', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' };
 const btnEdit: CSSProperties = { background: '#f1c40f', color: '#333', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px' };
-const btnDelete: CSSProperties = { background: '#e74c3c', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', color: 'white' };
+const btnDelete: CSSProperties = { background: '#e74c3c', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' };
