@@ -57,17 +57,17 @@ export class ThemeService {
         try {
             const db = await getDb();
             const result = await db.select<any[]>(
-                'SELECT theme_nom, theme_couleur_primaire, theme_couleur_secondaire FROM app_parametres_app WHERE id = 1'
+                'SELECT couleur_primaire, couleur_secondaire FROM app_parametres_app WHERE id = 1'
             );
 
-            if (result.length > 0 && result[0].theme_couleur_primaire) {
+            if (result.length > 0 && result[0].couleur_primaire) {
                 return {
-                    name: result[0].theme_nom || 'Custom',
-                    primaryColor: result[0].theme_couleur_primaire,
-                    secondaryColor: result[0].theme_couleur_secondaire,
+                    name: 'Custom',
+                    primaryColor: result[0].couleur_primaire,
+                    secondaryColor: result[0].couleur_secondaire,
                     gradient: this.generateGradient(
-                        result[0].theme_couleur_primaire,
-                        result[0].theme_couleur_secondaire
+                        result[0].couleur_primaire,
+                        result[0].couleur_secondaire
                     )
                 };
             }
@@ -83,9 +83,9 @@ export class ThemeService {
             const db = await getDb();
             await db.execute(
                 `UPDATE app_parametres_app 
-         SET theme_nom = ?, theme_couleur_primaire = ?, theme_couleur_secondaire = ?
+         SET couleur_primaire = ?, couleur_secondaire = ?
          WHERE id = 1`,
-                [theme.name, theme.primaryColor, theme.secondaryColor]
+                [theme.primaryColor, theme.secondaryColor]
             );
         } catch (error) {
             console.error('Error saving theme:', error);

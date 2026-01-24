@@ -59,8 +59,10 @@ export default function Login({ onLoginSuccess, config }: LoginProps) {
             }
 
             const foundUser = userRes[0];
+            const { verifyPassword } = await import("../lib/crypto");
+            const isValid = await verifyPassword(password, foundUser.password_hash);
 
-            if (foundUser.password_hash !== password) {
+            if (!isValid) {
                 setError("Mot de passe incorrect");
                 return;
             }

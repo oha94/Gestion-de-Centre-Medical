@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getDb, getCompanyInfo } from "../../lib/db";
 import { exportToExcel as utilsExportToExcel } from "../../lib/exportUtils";
+import { generateTicketHTML, TicketData } from "../../utils/ticketGenerator";
 
 interface FactureGlobale {
     id: number;
@@ -16,6 +17,7 @@ interface FactureGlobale {
 export default function FactureAssurance({ currentUser }: { currentUser?: any }) {
     // --- STATES ---
     const [viewMode, setViewMode] = useState<'NEW' | 'HISTORY'>('NEW');
+    const [previewTicketData, setPreviewTicketData] = useState<TicketData | null>(null);
 
     // FILTERS
     const [typeTiers, setTypeTiers] = useState<'ASSURANCE' | 'PERSONNEL'>('ASSURANCE');
@@ -185,6 +187,30 @@ export default function FactureAssurance({ currentUser }: { currentUser?: any })
         await printDocument(facture, details);
     };
 
+    const confirmPrintPreview = () => {
+        if (!previewTicketData) return;
+
+        // Use 'A4' for insurance receipts
+        const html = generateTicketHTML(previewTicketData, 'A4');
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+            doc.open();
+            doc.write(html);
+            doc.close();
+            setTimeout(() => {
+                iframe.contentWindow?.print();
+                document.body.removeChild(iframe);
+            }, 500);
+        }
+    };
+
     const handleExportExcel = async (facture: FactureGlobale) => {
         try {
             const db = await getDb();
@@ -339,7 +365,169 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
         }
     };
 
-    // --- RENDER ---
+
+    const printIndividualTicket = async (ticketNum: string) => {
+        if (!ticketNum || ticketNum === '-') return;
+        try {
+            const db = await getDb();
+            const company = await getCompanyInfo();
+
+            const items = await db.select<any[]>(`
+                SELECT v.*, 
+                       p.nom_prenoms as patient_nom, p.numero_carnet, p.telephone as patient_tel,
+                       p.assurance_id, p.nom_salarie, p.numero_assure, p.taux_couverture,
+                       a.nom as nom_assurance,
+                       u.nom_complet as caissier_nom
+                FROM ventes v
+                LEFT JOIN patients p ON v.patient_id = p.id
+                LEFT JOIN assurances a ON p.assurance_id = a.id
+                LEFT JOIN app_utilisateurs u ON v.user_id = u.id
+                WHERE v.numero_ticket = ?
+            `, [ticketNum]);
+
+            if (items.length === 0) return alert("Ticket introuvable.");
+
+            const first = items[0];
+            const totalBrut = items.reduce((acc, i) => acc + i.montant_total, 0);
+            const totalPartAssureur = items.reduce((acc, i) => acc + i.part_assureur, 0);
+            const totalPartPatient = items.reduce((acc, i) => acc + i.part_patient, 0);
+
+            const modes = Array.from(new Set(items.map(i => i.mode_paiement))).join(' + ');
+            const totalReste = items.reduce((acc, i) => acc + i.reste_a_payer, 0);
+            const montantVerse = (totalReste > 0) ? (totalPartPatient - totalReste) : totalPartPatient;
+
+            const ticketData: any = {
+                entreprise: {
+                    nom_entreprise: company.nom,
+                    adresse: company.adresse || '',
+                    telephone: company.telephone || ''
+                },
+                ticketNum: ticketNum,
+                dateVente: new Date(first.date_vente),
+                patient: first.patient_nom ? {
+                    nom_prenoms: first.patient_nom,
+                    numero_carnet: first.numero_carnet,
+                    telephone: first.patient_tel,
+                    nom_assurance: first.nom_assurance,
+                    taux_couverture: first.taux_couverture
+                } : undefined,
+                caissier: first.caissier_nom || 'Système',
+                items: items.map(i => ({
+                    libelle: i.acte_libelle.replace(/ \(x\d+\)$/, ''),
+                    qte: 1,
+                    partPatientUnitaire: i.part_patient,
+                    categorie: 'AUTRE'
+                })),
+                totalBrut: totalBrut,
+                totalPartAssureur: totalPartAssureur,
+                totalNetPatient: totalPartPatient,
+                paiement: {
+                    montantVerse: montantVerse,
+                    rendu: 0,
+                    mode: modes
+                },
+                insForm: first.assurance_id ? {
+                    societeId: '',
+                    matricule: first.numero_assure,
+                    numeroBon: first.numero_bon,
+                    societeNom: first.societe_nom
+                } : undefined
+            };
+
+            setPreviewTicketData(ticketData);
+
+        } catch (e) { console.error(e); alert("Erreur impression ticket"); }
+    };
+
+    const printBordereau = async () => {
+        const company = await getCompanyInfo();
+        const tickets = unbilledSales;
+        const total = tickets.reduce((acc, v) => acc + (typeTiers === 'ASSURANCE' ? v.part_assureur : v.reste_a_payer), 0);
+
+        const content = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Bordereau Provisoire</title>
+                <style>
+                    @page { size: A4; margin: 15mm; }
+                    body { font-family: 'Inter', sans-serif; font-size: 11px; color: #333; }
+                    .header { text-align: center; margin-bottom: 20px; }
+                    .company { font-size: 14px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }
+                    .title { font-size: 16px; font-weight: bold; text-decoration: underline; margin: 10px 0; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+                    th { border: 1px solid #ccc; padding: 8px; background: #eee; font-size: 10px; }
+                    td { border: 1px solid #ccc; padding: 6px; }
+                    .right { text-align: right; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="company">${company.nom}</div>
+                    <div>${company.adresse || ''}</div>
+                    <div class="title">BORDEREAU PROVISOIRE DES TICKETS ${typeTiers}</div>
+                    <div>Entité: <strong>${entites.find(e => e.id.toString() === selectedEntiteId)?.nom || selectedEntiteId}</strong></div>
+                    <div>Période: ${new Date(dateDebut).toLocaleDateString()} au ${new Date(dateFin).toLocaleDateString()}</div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Ticket</th>
+                            <th>Patient</th>
+                            <th>N° Assuré / Carnet</th>
+                            <th>Prestation</th>
+                            <th>Montant Total</th>
+                            <th>Part ${typeTiers === 'ASSURANCE' ? 'Assureur' : 'Reste à payer'}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tickets.map(t => `
+                            <tr>
+                                <td>${new Date(t.date_vente).toLocaleDateString()}</td>
+                                <td>${t.numero_ticket || '-'}</td>
+                                <td>${t.nom_patient}</td>
+                                <td>${t.numero_assure || t.numero_carnet || ''}</td>
+                                <td>${t.acte_libelle}</td>
+                                <td class="right">${t.montant_total.toLocaleString()}</td>
+                                <td class="right" style="font-weight:bold">${(typeTiers === 'ASSURANCE' ? t.part_assureur : t.reste_a_payer).toLocaleString()}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="6" class="right" style="font-weight:bold; padding:10px">TOTAL GÉNÉRAL</td>
+                            <td class="right" style="font-weight:bold; padding:10px">${total.toLocaleString()} F</td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div style="font-size:10px; font-style:italic; margin-top:20px;">
+                    Imprimé le ${new Date().toLocaleString()} par ${currentUser?.nom_complet || 'Système'}
+                </div>
+            </body>
+            </html>
+        `;
+
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+            doc.open();
+            doc.write(content);
+            doc.close();
+            setTimeout(() => {
+                iframe.contentWindow?.print();
+                document.body.removeChild(iframe);
+            }, 500);
+        }
+    };
+
     return (
         <div style={{ padding: '20px', fontFamily: 'sans-serif', background: '#f4f6f8', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
             {/* TABS */}
@@ -414,6 +602,14 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                                         {unbilledSales.map(v => (
                                             <tr key={v.id} style={{ borderBottom: '1px solid #eee' }}>
                                                 <td style={{ padding: '10px' }}>{new Date(v.date_vente).toLocaleDateString()}</td>
+                                                <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
+                                                    {v.numero_ticket || '-'}
+                                                    {v.numero_ticket && (
+                                                        <button onClick={() => printIndividualTicket(v.numero_ticket)} style={{ marginLeft: '5px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.2rem' }} title="Réimprimer Ticket">
+                                                            🖨️
+                                                        </button>
+                                                    )}
+                                                </td>
                                                 <td style={{ padding: '10px' }}>{v.nom_patient}</td>
                                                 <td style={{ padding: '10px' }}>{v.acte_libelle}</td>
                                                 <td style={{ padding: '10px', textAlign: 'right', color: '#ccc' }}>{v.montant_total.toLocaleString()}</td>
@@ -434,7 +630,10 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
 
                     {/* ACTIONS */}
                     {unbilledSales.length > 0 && (
-                        <div style={{ borderTop: '1px solid #eee', paddingTop: '20px', marginTop: '20px', textAlign: 'right' }}>
+                        <div style={{ borderTop: '1px solid #eee', paddingTop: '20px', marginTop: '20px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <button onClick={printBordereau} style={{ background: '#34495e', color: 'white', border: 'none', padding: '12px 20px', borderRadius: '5px', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                🖨️ IMPRIMER LISTE
+                            </button>
                             <button onClick={generateInvoice} style={{ background: '#27ae60', color: 'white', border: 'none', padding: '12px 30px', borderRadius: '5px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(39, 174, 96, 0.2)' }}>
                                 ✅ GÉNÉRER LA FACTURE GLOBALE
                             </button>
@@ -483,6 +682,128 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                         </tbody>
                     </table>
                     {history.length === 0 && <div style={{ textAlign: 'center', padding: '30px', color: '#999' }}>Aucune facture générée pour l'instant.</div>}
+                </div>
+            )}
+
+            {previewTicketData && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
+                    <div style={{ background: 'white', width: '210mm', height: '297mm', maxHeight: '90vh', maxWidth: '95vw', borderRadius: '5px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
+                        <div style={{ padding: '15px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8f9fa' }}>
+                            <h3 style={{ margin: 0 }}>Aperçu du Reçu (Format A4)</h3>
+                            <button onClick={() => setPreviewTicketData(null)} style={{ border: 'none', background: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#666' }}>✖</button>
+                        </div>
+
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '15mm', fontFamily: 'Inter, sans-serif', fontSize: '12px', lineHeight: '1.5', color: '#333' }}>
+                            {/* HEADER A4 Style */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
+                                <div>
+                                    <div style={{ fontWeight: 'bold', fontSize: '20px', textTransform: 'uppercase', color: '#2c3e50' }}>{previewTicketData.entreprise.nom_entreprise || 'CENTRE MEDICAL'}</div>
+                                    <div style={{ color: '#7f8c8d' }}>{previewTicketData.entreprise.adresse}</div>
+                                    <div style={{ color: '#7f8c8d' }}>Tel: {previewTicketData.entreprise.telephone}</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontWeight: 'bold', fontSize: '18px', color: '#2c3e50' }}>REÇU DE PAIEMENT</div>
+                                    <div>N° Ticket: <strong>{previewTicketData.ticketNum}</strong></div>
+                                    <div>Date: {previewTicketData.dateVente.toLocaleString()}</div>
+                                    <div>Caissier: {previewTicketData.caissier}</div>
+                                </div>
+                            </div>
+
+                            {/* PATIENT INFO BOX */}
+                            <div style={{ border: '1px solid #ccc', borderRadius: '5px', padding: '15px', background: '#fdfdfd', marginBottom: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                <div>
+                                    <div style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase', fontWeight: 'bold' }}>Patient</div>
+                                    <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{previewTicketData.patient?.nom_prenoms || 'Client Passage'}</div>
+                                    {previewTicketData.patient?.numero_carnet && <div>N° Carnet: {previewTicketData.patient.numero_carnet}</div>}
+                                    {previewTicketData.patient?.telephone && <div>Tel: {previewTicketData.patient.telephone}</div>}
+                                </div>
+                                {previewTicketData.patient?.nom_assurance ? (
+                                    <div>
+                                        <div style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase', fontWeight: 'bold' }}>Assurance / Prise en charge</div>
+                                        <div style={{ fontWeight: 'bold' }}>{previewTicketData.patient.nom_assurance}</div>
+                                        {previewTicketData.patient.taux_couverture && <div>Taux: {previewTicketData.patient.taux_couverture}%</div>}
+                                        {previewTicketData.insForm?.matricule && <div>Matricule: {previewTicketData.insForm.matricule}</div>}
+                                        {previewTicketData.insForm?.numeroBon && <div>N° Bon: {previewTicketData.insForm.numeroBon}</div>}
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <div style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase', fontWeight: 'bold' }}>Mode de Règlement</div>
+                                        <div>Comptant / Direct</div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
+                                <thead style={{ borderBottom: '2px solid #2c3e50' }}>
+                                    <tr>
+                                        <th style={{ textAlign: 'left', padding: '10px 0', color: '#2c3e50' }}>Désignation</th>
+                                        <th style={{ textAlign: 'right', padding: '10px 0', color: '#2c3e50' }}>Qte</th>
+                                        <th style={{ textAlign: 'right', padding: '10px 0', color: '#2c3e50' }}>Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {previewTicketData.items.map((item, idx) => {
+                                        const catMap: any = {
+                                            'PRODUITS': 'Pharmacie',
+                                            'EXAMENS': 'Examen',
+                                            'ACTES MÉDICAUX': 'Acte',
+                                            'CONSULTATIONS': 'Consultation',
+                                            'HOSPITALISATIONS': 'Hospitalisation',
+                                            'AUTRE': 'Service'
+                                        };
+                                        const catLabel = catMap[item.categorie || 'AUTRE'] || item.categorie;
+
+                                        return (
+                                            <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                                                <td style={{ padding: '10px 0' }}>
+                                                    <div style={{ fontWeight: '500' }}>{item.libelle}</div>
+                                                    <div style={{ fontSize: '10px', fontStyle: 'italic', color: '#7f8c8d' }}>{catLabel}</div>
+                                                </td>
+                                                <td style={{ textAlign: 'right', padding: '10px 0', verticalAlign: 'top' }}>{item.qte}</td>
+                                                <td style={{ textAlign: 'right', padding: '10px 0', verticalAlign: 'top', fontWeight: 'bold' }}>{(item.partPatientUnitaire * item.qte).toLocaleString()} F</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                <table style={{ width: '300px', borderCollapse: 'collapse' }}>
+                                    <tbody>
+                                        <tr>
+                                            <td style={{ textAlign: 'right', padding: '5px' }}>TOTAL BRUT :</td>
+                                            <td style={{ textAlign: 'right', padding: '5px', fontWeight: 'bold' }}>{previewTicketData.totalBrut.toLocaleString()} F</td>
+                                        </tr>
+                                        {previewTicketData.totalPartAssureur > 0 && (
+                                            <tr>
+                                                <td style={{ textAlign: 'right', padding: '5px', color: '#e74c3c' }}>PART ASSURANCE :</td>
+                                                <td style={{ textAlign: 'right', padding: '5px', fontWeight: 'bold', color: '#e74c3c' }}>-{previewTicketData.totalPartAssureur.toLocaleString()} F</td>
+                                            </tr>
+                                        )}
+                                        <tr style={{ borderTop: '2px solid #2c3e50', fontSize: '16px' }}>
+                                            <td style={{ textAlign: 'right', padding: '10px 5px', fontWeight: 'bold', color: '#2c3e50' }}>NET À PAYER :</td>
+                                            <td style={{ textAlign: 'right', padding: '10px 5px', fontWeight: 'bold', color: '#2c3e50' }}>{previewTicketData.totalNetPatient.toLocaleString()} F</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+
+                                <div style={{ marginTop: '10px', textAlign: 'right', fontSize: '11px', color: '#7f8c8d' }}>
+                                    Mode: {previewTicketData.paiement.mode} | Reçu: {previewTicketData.paiement.montantVerse.toLocaleString()} F | Rendu: {previewTicketData.paiement.rendu.toLocaleString()} F
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: '15px', textAlign: 'center', fontStyle: 'italic', fontSize: '11px' }}>
+                                Merci de votre confiance !
+                            </div>
+
+                        </div>
+
+                        <div style={{ padding: '15px', borderTop: '1px solid #eee', background: '#f9f9f9', textAlign: 'center' }}>
+                            <button onClick={confirmPrintPreview} style={{ background: '#2c3e50', color: 'white', border: 'none', padding: '15px 30px', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', width: '100%' }}>
+                                🖨️ IMPRIMER (Format A4)
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

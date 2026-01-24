@@ -111,6 +111,12 @@ export default function Inventaire({ currentUser }: { currentUser?: any }) {
 
                 localStorage.setItem(migrationKeyV3, "true");
 
+                // 3. FIX AUTO-INCREMENT (Patch v4)
+                await db.execute("ALTER TABLE stock_inventaires MODIFY COLUMN id INT AUTO_INCREMENT");
+                console.log("✅ Fixed stock_inventaires ID auto-increment");
+                await db.execute("ALTER TABLE stock_inventaire_lignes MODIFY COLUMN id INT AUTO_INCREMENT");
+                console.log("✅ Fixed stock_inventaire_lignes ID auto-increment");
+
             } catch (e) {
                 console.error("Migration Inv Error:", e);
                 alert("Erreur initialisation DB Inventaire: " + JSON.stringify(e));

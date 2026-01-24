@@ -62,31 +62,35 @@ export default function Deconditionnement() {
       // 1. Tous les articles (pour la config)
       const allArticles = await db.select<any[]>(`
         SELECT id, designation, cip, 
-        CAST(quantite_stock AS DOUBLE) as stock, 
+        CAST(quantite_stock AS CHAR) as stock, 
         unite_detail as unite, 
-        CAST(prix_vente AS DOUBLE) as prix,
+        CAST(prix_vente AS CHAR) as prix,
         article_parent_id, coefficient_conversion
         FROM stock_articles
         ORDER BY designation
       `);
-      setArticles(allArticles);
+      setArticles(allArticles.map(a => ({ ...a, stock: parseFloat(a.stock || "0"), prix: parseFloat(a.prix || "0") })));
 
       // 2. Articles liés (Dashboard)
       // On récupère ceux qui ont un parent
       const linked = await db.select<any[]>(`
         SELECT 
           child.id, child.designation, child.cip, 
-          CAST(child.quantite_stock AS DOUBLE) as stock, 
+          CAST(child.quantite_stock AS CHAR) as stock, 
           child.unite_detail as unite,
           child.article_parent_id, child.coefficient_conversion,
           parent.designation as parent_designation,
-          CAST(parent.quantite_stock AS DOUBLE) as parent_stock,
+          CAST(parent.quantite_stock AS CHAR) as parent_stock,
           parent.unite_gros as parent_unite
         FROM stock_articles child
         JOIN stock_articles parent ON child.article_parent_id = parent.id
         ORDER BY child.designation
       `);
-      setLinkedArticles(linked);
+      setLinkedArticles(linked.map(l => ({
+        ...l,
+        stock: parseFloat(l.stock || "0"),
+        parent_stock: parseFloat(l.parent_stock || "0")
+      })));
 
       // 3. Historique
       const hist = await db.select<any[]>(`

@@ -15,13 +15,31 @@ export interface AdminData {
 
 class SetupService {
     private db: Database | null = null;
+    private readonly DB_HOST_KEY = 'focolari_db_host';
+
+    /**
+     * Get the configured database host
+     */
+    getDatabaseHost(): string {
+        return localStorage.getItem(this.DB_HOST_KEY) || 'localhost';
+    }
+
+    /**
+     * Set the database host
+     */
+    setDatabaseHost(host: string) {
+        localStorage.setItem(this.DB_HOST_KEY, host);
+        this.db = null; // Force reconnection
+    }
 
     /**
      * Initialize database connection
      */
     private async getDb(): Promise<Database> {
         if (!this.db) {
-            this.db = await Database.load('mysql://root@localhost/focolari_db');
+            const host = this.getDatabaseHost();
+            // Connection string format: mysql://user:password@host/database
+            this.db = await Database.load(`mysql://root@${host}/focolari_db`);
         }
         return this.db;
     }

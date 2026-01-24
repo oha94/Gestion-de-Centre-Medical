@@ -2,7 +2,12 @@ import { useState, useEffect } from "react";
 import { getDb, getCompanyInfo } from "../lib/db";
 import { exportToExcel as utilsExportToExcel } from "../lib/exportUtils";
 
-export default function PatientsView({ currentUser }: any) {
+import { useAuth } from "../contexts/AuthContext";
+
+export default function PatientsView() {
+  const { canEdit, canDelete, user } = useAuth();
+  // currentUser was used for printing PDF signature (currentUser.nom_complet)
+  // We can use 'user' from context for that.
   const [patients, setPatients] = useState<any[]>([]);
   const [f, setF] = useState({ carnet: "", nom: "", sexe: "Homme", dateN: "", tel1: "", tel2: "", ville: "", spref: "", village: "" });
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
@@ -289,7 +294,7 @@ export default function PatientsView({ currentUser }: any) {
         </div>
 
         <div class="footer">
-          Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Système'}
+          Imprimé le ${new Date().toLocaleString('fr-FR')} par ${user?.nom_complet || 'Système'}
           <br/>Centre Médical Focolari - Application de Gestion
         </div>
       </body>
@@ -396,9 +401,14 @@ export default function PatientsView({ currentUser }: any) {
                   <div style={inputGroup}><label style={labelS}>Téléphone 2</label><input value={f.tel2} onChange={e => setF({ ...f, tel2: e.target.value })} style={inputStyle} /></div>
                   <div style={inputGroup}><label style={labelS}>Ville</label><input value={f.ville} onChange={e => setF({ ...f, ville: e.target.value })} style={inputStyle} /></div>
                   <div style={inputGroup}><label style={labelS}>S/Préfecture</label><input value={f.spref} onChange={e => setF({ ...f, spref: e.target.value })} style={inputStyle} /></div>
-                  <div style={inputGroup}><label style={labelS}>Village</label><input value={f.village} onChange={e => setF({ ...f, village: e.target.value })} style={inputStyle} /></div>
+                  <div style={inputGroup}><label style={labelS}>Village</label><input value={f.village} disabled={!canEdit()} onChange={e => setF({ ...f, village: e.target.value })} style={inputStyle} /></div>
                 </div>
-                <button onClick={enregistrer} style={{ ...btnStyle, marginTop: '20px', backgroundColor: '#2ecc71', width: '200px', fontWeight: 'bold' }}>Enregistrer Patient</button>
+                {canEdit() && (
+                  <button onClick={enregistrer} style={{ ...btnStyle, marginTop: '20px', backgroundColor: '#2ecc71', width: '200px', fontWeight: 'bold' }}>Enregistrer Patient</button>
+                )}
+                {!canEdit() && (
+                  <div style={{ marginTop: '20px', color: '#e74c3c', fontStyle: 'italic' }}>🚫 Vous n'avez pas les droits pour créer un patient.</div>
+                )}
               </div>
 
               <div style={{ ...cardStyle, marginTop: '20px' }}>
@@ -469,21 +479,23 @@ export default function PatientsView({ currentUser }: any) {
                 )}
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  onClick={ouvrirPopupAssurance}
-                  style={{
-                    background: selectedPatient.assurance_id ? '#3498db' : '#27ae60',
-                    color: 'white',
-                    border: 'none',
-                    padding: '12px 20px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  {selectedPatient.assurance_id ? '✏️ Modifier l\'assurance' : '➕ Attribuer une assurance'}
-                </button>
-                {selectedPatient.assurance_id && (
+                {canEdit() && (
+                  <button
+                    onClick={ouvrirPopupAssurance}
+                    style={{
+                      background: selectedPatient.assurance_id ? '#3498db' : '#27ae60',
+                      color: 'white',
+                      border: 'none',
+                      padding: '12px 20px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {selectedPatient.assurance_id ? '✏️ Modifier l\'assurance' : '➕ Attribuer une assurance'}
+                  </button>
+                )}
+                {selectedPatient.assurance_id && canDelete() && (
                   <button
                     onClick={retirerAssurance}
                     style={{
@@ -504,7 +516,9 @@ export default function PatientsView({ currentUser }: any) {
           </div>
 
           <div style={{ marginTop: '20px' }}>
-            <button onClick={() => setShowPopupModif(true)} style={{ background: '#f1c40f', border: 'none', padding: '12px 25px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>✎ Modifier les informations du patient</button>
+            {canEdit() && (
+              <button onClick={() => setShowPopupModif(true)} style={{ background: '#f1c40f', border: 'none', padding: '12px 25px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>✎ Modifier les informations du patient</button>
+            )}
           </div>
 
           <h3 style={{ marginTop: '40px', borderBottom: '2px solid #3498db', paddingBottom: '10px', color: '#2c3e50' }}>📜 Historique des Opérations</h3>

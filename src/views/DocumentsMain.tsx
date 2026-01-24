@@ -152,6 +152,42 @@ function ReportMouvements({ onBack }: { onBack: () => void }) {
         );
     };
 
+    const exportToExcel = async () => {
+        if (data.length === 0) return alert("Aucune donnée à exporter");
+
+        try {
+            const XLSX = await import('xlsx');
+
+            const wsData = [
+                ["Article", "Entrées (Qté)", "Sorties (Qté)", "Solde Période"], // Headers
+                ...data.map(r => [
+                    r.name,
+                    r.in,
+                    r.out,
+                    r.in - r.out
+                ])
+            ];
+
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+            // Auto-width columns roughly
+            const wscols = [
+                { wch: 40 }, // Article
+                { wch: 15 }, // In
+                { wch: 15 }, // Out
+                { wch: 15 }  // Solde
+            ];
+            ws['!cols'] = wscols;
+
+            XLSX.utils.book_append_sheet(wb, ws, "Mouvements");
+            XLSX.writeFile(wb, `Mouvements_Stock_${dates.start}_${dates.end}.xlsx`);
+        } catch (e) {
+            console.error(e);
+            alert("Erreur lors de l'export Excel");
+        }
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -163,7 +199,12 @@ function ReportMouvements({ onBack }: { onBack: () => void }) {
                 <label>Du : <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} style={inputStyle} /></label>
                 <label>Au : <input type="date" value={dates.end} onChange={e => setDates({ ...dates, end: e.target.value })} style={inputStyle} /></label>
                 <button onClick={loadData} disabled={loading} style={btnActionStyle}>{loading ? 'Chargement...' : 'Générer Rapport'}</button>
-                {data.length > 0 && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                {data.length > 0 && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>📄 PDF</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel</button>
+                    </>
+                )}
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -202,7 +243,7 @@ function ReportInvendus({ onBack }: { onBack: () => void }) {
         try {
             const db = await getDb();
             const res = await db.select<any[]>(`
-                SELECT id, designation, CAST(quantite_stock AS DOUBLE) as stock, CAST(prix_achat AS DOUBLE) as prix_achat
+                SELECT id, designation, quantite_stock as stock, prix_achat as prix_achat
                 FROM stock_articles
                 WHERE id NOT IN (
                     SELECT DISTINCT article_id 
@@ -285,7 +326,7 @@ function ReportBestSellers({ onBack }: { onBack: () => void }) {
         try {
             const db = await getDb();
             const salesRaw = await db.select<any[]>(`
-                SELECT v.article_id, sa.designation, v.acte_libelle, v.montant_total, CAST(sa.prix_achat AS DOUBLE) as prix_achat
+                SELECT v.article_id, sa.designation, v.acte_libelle, v.montant_total, sa.prix_achat as prix_achat
                 FROM ventes v
                 JOIN stock_articles sa ON v.article_id = sa.id
                 WHERE DATE(v.date_vente) BETWEEN ? AND ?
@@ -426,14 +467,14 @@ function ReportInstantStock({ onBack }: { onBack: () => void }) {
             let res: any[] = [];
             try {
                 res = await db.select<any[]>(`
-                    SELECT sa.designation, CAST(sa.quantite_stock AS DOUBLE) as stock, CAST(sa.prix_achat AS DOUBLE) as prix_achat, r.libelle as rayon 
+                    SELECT sa.designation, sa.quantite_stock as stock, sa.prix_achat as prix_achat, r.libelle as rayon 
                     FROM stock_articles sa 
                     LEFT JOIN stock_rayons r ON sa.rayon_id = r.id 
                     ORDER BY r.libelle, sa.designation
                 `);
             } catch (joinErr) {
                 console.warn("Rayon join failed, fallback", joinErr);
-                res = await db.select<any[]>(`SELECT designation, CAST(quantite_stock AS DOUBLE) as stock, CAST(prix_achat AS DOUBLE) as prix_achat, 'Non classé' as rayon FROM stock_articles ORDER BY designation`);
+                res = await db.select<any[]>(`SELECT designation, quantite_stock as stock, prix_achat as prix_achat, 'Non classé' as rayon FROM stock_articles ORDER BY designation`);
             }
 
             setData(res);
@@ -699,7 +740,7 @@ function ReportAccountsReceivable({ onBack }: { onBack: () => void }) {
                         a.nom, 
                         'ASSURANCE' as type, 
                         COUNT(v.id) as count_tickets,
-                        CAST(COALESCE(SUM(v.part_assureur), 0) AS DOUBLE) as total_debt
+                        CAST(COALESCE(SUM(v.part_assureur), 0) AS CHAR) as total_debt
                     FROM ventes v
                     JOIN patients p ON v.patient_id = p.id
                     JOIN assurances a ON p.assurance_id = a.id
@@ -707,7 +748,8 @@ function ReportAccountsReceivable({ onBack }: { onBack: () => void }) {
                     GROUP BY a.id, a.nom
                     ORDER BY a.nom
                 `);
-                results.push(...assurancesRes);
+                const parsedAssurances = assurancesRes.map(r => ({ ...r, total_debt: parseFloat(r.total_debt || "0") }));
+                results.push(...parsedAssurances);
             }
 
             // 2. Personnel Debt
@@ -964,16 +1006,16 @@ function ReportPeriodicActivity({ onBack }: { onBack: () => void }) {
         try {
             const db = await getDb();
             // Sales
-            const salesRes = await db.select<any[]>(`SELECT CAST(SUM(montant_total) AS DOUBLE) as total FROM ventes WHERE DATE(date_vente) BETWEEN ? AND ?`, [dates.start, dates.end]);
-            const sales = salesRes[0]?.total || 0;
+            const salesRes = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant_total), 0) AS CHAR) as total FROM ventes WHERE DATE(date_vente) BETWEEN ? AND ?`, [dates.start, dates.end]);
+            const sales = parseFloat(salesRes[0]?.total || "0");
 
             // Purchases
-            const purchasesRes = await db.select<any[]>(`SELECT CAST(SUM(montant_total) AS DOUBLE) as total FROM stock_bons_livraison WHERE DATE(date_bl) BETWEEN ? AND ?`, [dates.start, dates.end]);
-            const purchases = purchasesRes[0]?.total || 0;
+            const purchasesRes = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant_total), 0) AS CHAR) as total FROM stock_bons_livraison WHERE DATE(date_bl) BETWEEN ? AND ?`, [dates.start, dates.end]);
+            const purchases = parseFloat(purchasesRes[0]?.total || "0");
 
             // Expenses (Decaissements)
-            const expensesRes = await db.select<any[]>(`SELECT CAST(SUM(montant) AS DOUBLE) as total FROM caisse_mouvements WHERE type = 'DECAISSEMENT' AND DATE(date_mouvement) BETWEEN ? AND ?`, [dates.start, dates.end]);
-            const expenses = expensesRes[0]?.total || 0;
+            const expensesRes = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant), 0) AS CHAR) as total FROM caisse_mouvements WHERE type = 'DECAISSEMENT' AND DATE(date_mouvement) BETWEEN ? AND ?`, [dates.start, dates.end]);
+            const expenses = parseFloat(expensesRes[0]?.total || "0");
 
             setStats({ sales, purchases, expenses, result: sales - purchases - expenses });
         } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -1137,7 +1179,7 @@ function ReportCashFlowPeriod({ onBack }: { onBack: () => void }) {
 
             // 1. Get Daily Cash Sales
             const salesRes = await db.select<any[]>(`
-                SELECT DATE(date_vente) as day, SUM(part_patient) as total_sales 
+                SELECT DATE(date_vente) as day, CAST(SUM(part_patient) AS CHAR) as total_sales 
                 FROM ventes 
                 WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement = 'ESPECES') AND DATE(date_vente) BETWEEN ? AND ? 
                 GROUP BY DATE(date_vente)
@@ -1145,7 +1187,7 @@ function ReportCashFlowPeriod({ onBack }: { onBack: () => void }) {
 
             // 2. Get Daily Cash Movements (In/Out)
             const movementsRes = await db.select<any[]>(`
-                SELECT DATE(date_mouvement) as day, type, SUM(montant) as total 
+                SELECT DATE(date_mouvement) as day, type, CAST(SUM(montant) AS CHAR) as total 
                 FROM caisse_mouvements 
                 WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement = 'ESPECES') AND DATE(date_mouvement) BETWEEN ? AND ? 
                 GROUP BY DATE(date_mouvement), type
@@ -1156,13 +1198,14 @@ function ReportCashFlowPeriod({ onBack }: { onBack: () => void }) {
 
             salesRes.forEach(s => {
                 if (!dailyStats[s.day]) dailyStats[s.day] = { in: 0, out: 0 };
-                dailyStats[s.day].in += s.total_sales;
+                dailyStats[s.day].in += parseFloat(s.total_sales || "0");
             });
 
             movementsRes.forEach(m => {
                 if (!dailyStats[m.day]) dailyStats[m.day] = { in: 0, out: 0 };
-                if (m.type === 'DECAISSEMENT') dailyStats[m.day].out += m.total;
-                else dailyStats[m.day].in += m.total; // ENCAISSEMENT
+                const val = parseFloat(m.total || "0");
+                if (m.type === 'DECAISSEMENT') dailyStats[m.day].out += val;
+                else dailyStats[m.day].in += val; // ENCAISSEMENT
             });
 
             const merged = Object.keys(dailyStats).sort().map(day => ({
@@ -1254,22 +1297,22 @@ function ReportCashDiscrepancy({ onBack }: { onBack: () => void }) {
 
             // Sales (Cash)
             const salesRes = await db.select<any[]>(`
-                SELECT CAST(COALESCE(SUM(part_patient), 0) AS DOUBLE) as total 
+                SELECT CAST(COALESCE(SUM(part_patient), 0) AS CHAR) as total 
                 FROM ventes 
                 WHERE DATE(date_vente) = ? AND (mode_paiement LIKE 'ESP%CE' OR mode_paiement = 'ESPECES') ${userFilterSales}
             `, [date]);
-            const sales = salesRes[0]?.total || 0;
+            const sales = parseFloat(salesRes[0]?.total || "0");
 
             // Movements
             const movsRes = await db.select<any[]>(`
-                SELECT type, CAST(COALESCE(SUM(montant), 0) AS DOUBLE) as total 
+                SELECT type, CAST(COALESCE(SUM(montant), 0) AS CHAR) as total 
                 FROM caisse_mouvements 
                 WHERE DATE(date_mouvement) = ? AND (mode_paiement LIKE 'ESP%CE' OR mode_paiement = 'ESPECES') ${userFilterMovs}
                 GROUP BY type
             `, [date]);
 
-            const inMovs = movsRes.find(m => m.type !== 'DECAISSEMENT')?.total || 0;
-            const outMovs = movsRes.find(m => m.type === 'DECAISSEMENT')?.total || 0;
+            const inMovs = parseFloat(movsRes.find(m => m.type !== 'DECAISSEMENT')?.total || "0");
+            const outMovs = parseFloat(movsRes.find(m => m.type === 'DECAISSEMENT')?.total || "0");
 
             setStats({ sales, inMovs, outMovs, theoretical: sales + inMovs - outMovs });
         } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -1521,20 +1564,32 @@ function ReportDeletedBL({ onBack }: { onBack: () => void }) {
 
     const verifierDetails = (detailsJson: string) => {
         try {
+            if (!detailsJson || detailsJson === '[]') return alert("Ce BL était vide lors de la suppression.");
             const details = JSON.parse(detailsJson);
             if (!Array.isArray(details) || details.length === 0) return alert("Aucun détail archivé.");
 
-            const w = window.open('', '', 'width=600,height=400');
+            const w = window.open('', '', 'width=700,height=500');
             if (w) {
                 w.document.write(`
-                    <h3>Détails du BL Supprimé</h3>
-                    <table border="1" style="width:100%; border-collapse:collapse">
-                        <tr><th>Article ID</th><th>Qté</th><th>Prix HT</th><th>Total</th></tr>
-                        ${details.map(d => `<tr><td>${d.article_id}</td><td>${d.quantite}</td><td>${d.prix_achat_ht}</td><td>${d.total_ligne}</td></tr>`).join('')}
+                    <html><body style="font-family:sans-serif; padding:20px;">
+                    <h3 style="color:#c0392b">Détails du BL Supprimé (Archive)</h3>
+                    <table border="1" style="width:100%; border-collapse:collapse; border-color:#eee;">
+                        <tr style="background:#f9f9f9"><th>Article</th><th>Qté</th><th>Prix HT</th><th>Total</th></tr>
+                        ${details.map(d => `
+                            <tr>
+                                <td style="padding:8px">${d.designation || 'ID: ' + d.article_id}</td>
+                                <td style="padding:8px; text-align:center; font-weight:bold">${d.quantite}</td>
+                                <td style="padding:8px; text-align:right">${d.prix_achat_ht ? d.prix_achat_ht.toLocaleString() : '-'}</td>
+                                <td style="padding:8px; text-align:right">${d.total_ligne ? d.total_ligne.toLocaleString() : '-'}</td>
+                            </tr>`).join('')}
                     </table>
+                    <div style="font-size:12px; color:#7f8c8d; margin-top:20px">
+                        * Les données ci-dessus sont une copie figée au moment de la suppression.
+                    </div>
+                    </body></html>
                 `);
             }
-        } catch (e) { alert("Impossible de lire les détails."); }
+        } catch (e) { alert("Format d'archive illisible."); }
     };
 
     return (
@@ -1579,9 +1634,10 @@ function ReportEntreesSorties({ onBack }: { onBack: () => void }) {
             // 1. Sales (Cash)
             const sales = await db.select<any[]>(`
                 SELECT v.id, v.date_vente as date_mvt, 
-                       CONCAT('Vente #', v.id, ' - ', COALESCE(v.patient_nom, 'Patient Passager')) as libelle,
-                       CAST(v.part_patient AS DOUBLE) as montant, 'IN' as type
+                       CONCAT('Vente #', v.id, ' - ', COALESCE(p.nom_prenoms, 'Patient Passager')) as libelle,
+                       v.part_patient as montant, 'IN' as type
                 FROM ventes v
+                LEFT JOIN patients p ON v.patient_id = p.id
                 WHERE (v.mode_paiement LIKE 'ESP%CE' OR v.mode_paiement = 'ESPECES') 
                   AND DATE(v.date_vente) BETWEEN ? AND ?
             `, [dates.start, dates.end]);
@@ -1590,7 +1646,7 @@ function ReportEntreesSorties({ onBack }: { onBack: () => void }) {
             const movements = await db.select<any[]>(`
                 SELECT m.id, m.date_mouvement as date_mvt, 
                        m.motif as libelle,
-                       CAST(m.montant AS DOUBLE) as montant, 
+                       m.montant as montant, 
                        CASE WHEN m.type = 'ENCAISSEMENT' THEN 'IN' ELSE 'OUT' END as type
                 FROM caisse_mouvements m
                 WHERE (m.mode_paiement LIKE 'ESP%CE' OR m.mode_paiement = 'ESPECES') 
@@ -1601,11 +1657,11 @@ function ReportEntreesSorties({ onBack }: { onBack: () => void }) {
             let runningBalance = 0; // This should ideally start with previous balance, but for this report we might just show flow
 
             // Optional: Get previous balance
-            const prevSales = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(part_patient),0) AS DOUBLE) as t FROM ventes WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND DATE(date_vente) < ?`, [dates.start]);
-            const prevMvtsIn = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant),0) AS DOUBLE) as t FROM caisse_mouvements WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND type='ENCAISSEMENT' AND DATE(date_mouvement) < ?`, [dates.start]);
-            const prevMvtsOut = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant),0) AS DOUBLE) as t FROM caisse_mouvements WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND type='DECAISSEMENT' AND DATE(date_mouvement) < ?`, [dates.start]);
+            const prevSales = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(part_patient),0) AS CHAR) as t FROM ventes WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND DATE(date_vente) < ?`, [dates.start]);
+            const prevMvtsIn = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant),0) AS CHAR) as t FROM caisse_mouvements WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND type='ENCAISSEMENT' AND DATE(date_mouvement) < ?`, [dates.start]);
+            const prevMvtsOut = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant),0) AS CHAR) as t FROM caisse_mouvements WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND type='DECAISSEMENT' AND DATE(date_mouvement) < ?`, [dates.start]);
 
-            const startBalance = (prevSales[0]?.t || 0) + (prevMvtsIn[0]?.t || 0) - (prevMvtsOut[0]?.t || 0);
+            const startBalance = (parseFloat(prevSales[0]?.t || "0")) + (parseFloat(prevMvtsIn[0]?.t || "0")) - (parseFloat(prevMvtsOut[0]?.t || "0"));
             runningBalance = startBalance;
 
             const all = [...sales, ...movements].sort((a, b) => new Date(a.date_mvt).getTime() - new Date(b.date_mvt).getTime());

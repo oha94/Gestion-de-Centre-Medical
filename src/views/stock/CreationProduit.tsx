@@ -6,6 +6,7 @@ export default function CreationProduit({ refresh }: { refresh: () => void }) {
   const [rayons, setRayons] = useState<any[]>([]);
 
   // --- ÉTATS FORMULAIRE ---
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [f, setF] = useState({
     cip: "",
     designation: "",
@@ -72,31 +73,60 @@ export default function CreationProduit({ refresh }: { refresh: () => void }) {
     try {
       const db = await getDb();
 
-      // Vérifier si le CIP existe déjà
-      const existing = await db.select<any[]>("SELECT id FROM stock_articles WHERE cip = ?", [f.cip]);
-      if (existing.length > 0) {
-        return alert("Erreur : Ce CIP existe déjà dans la base de données.");
+      if (editingId) {
+        // --- MODE MODIFICATION ---
+        // On ne touche PAS au stock (quantite_stock), c'est "verrouillé" comme demandé.
+        await db.execute(
+          "UPDATE stock_articles SET cip=?, designation=?, rayon_id=?, prix_achat=?, prix_vente=? WHERE id=?",
+          [f.cip, f.designation, f.rayonId || null, f.pAchat || 0, f.pVente, editingId]
+        );
+        alert("Produit modifié avec succès !");
+        setEditingId(null);
+      } else {
+        // --- MODE CREATION ---
+        // Vérifier si le CIP existe déjà
+        const existing = await db.select<any[]>("SELECT id FROM stock_articles WHERE cip = ?", [f.cip]);
+        if (existing.length > 0) {
+          return alert("Erreur : Ce CIP existe déjà dans la base de données.");
+        }
+
+        await db.execute(
+          "INSERT INTO stock_articles (cip, designation, rayon_id, prix_achat, prix_vente, quantite_stock) VALUES (?,?,?,?,?, 0)",
+          [f.cip, f.designation, f.rayonId || null, f.pAchat || 0, f.pVente]
+        );
+        alert("Produit créé avec succès !");
       }
 
-      await db.execute(
-        "INSERT INTO stock_articles (cip, designation, rayon_id, prix_achat, prix_vente, quantite_stock) VALUES (?,?,?,?,?, 0)",
-        [f.cip, f.designation, f.rayonId || null, f.pAchat || 0, f.pVente]
-      );
-
       setF({ cip: "", designation: "", pAchat: "", pVente: "", rayonId: "" });
-      alert("Produit créé avec succès !");
       chargerDonnees();
       refresh(); // Met à jour le compteur global dans StockMain
     } catch (e) {
-      console.error("Erreur lors de la création du produit:", e);
-      alert("Erreur lors de l'enregistrement du produit. Vérifiez que tous les champs sont corrects.");
+      console.error("Erreur action produit:", e);
+      alert("Erreur lors de l'enregistrement. Vérifiez les données.");
     }
+  };
+
+  const handleEdit = (prod: any) => {
+    setEditingId(prod.id);
+    setF({
+      cip: prod.cip,
+      designation: prod.designation,
+      pAchat: prod.prix_achat,
+      pVente: prod.prix_vente,
+      rayonId: prod.rayon_id || ""
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancel = () => {
+    setEditingId(null);
+    setF({ cip: "", designation: "", pAchat: "", pVente: "", rayonId: "" });
   };
 
   // Logiciel de filtrage et pagination
   const filtered = articles.filter(a =>
-    a.designation.toLowerCase().includes(search.toLowerCase()) ||
-    a.cip.toLowerCase().includes(search.toLowerCase())
+    (a.designation || "").toLowerCase().includes(search.toLowerCase()) ||
+    (a.cip || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const totalPages = Math.ceil(filtered.length / pageSize);
@@ -106,10 +136,11 @@ export default function CreationProduit({ refresh }: { refresh: () => void }) {
     <div style={{ padding: '10px' }}>
       <h1 style={{ color: '#2c3e50', marginBottom: '20px' }}>✨ Catalogue des Produits</h1>
 
-      {/* --- FORMULAIRE DE CRÉATION (DESIGN MODERNE) --- */}
-      <div style={cardStyle}>
-        <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0, color: '#3498db' }}>
-          ➕ Enregistrer un nouveau produit
+      {/* --- FORMULAIRE DE CRÉATION / EDITION --- */}
+      <div style={{ ...cardStyle, borderLeft: editingId ? '5px solid #f1c40f' : '5px solid #3498db' }}>
+        <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0, color: editingId ? '#f39c12' : '#3498db', display: 'flex', justifyContent: 'space-between' }}>
+          {editingId ? "✏️ Modifier le produit" : "➕ Enregistrer un nouveau produit"}
+          {editingId && <button onClick={handleCancel} style={{ ...btnSave, background: '#95a5a6', padding: '5px 15px', fontSize: '12px' }}>Annuler</button>}
         </h3>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '15px', marginTop: '20px' }}>
@@ -119,7 +150,7 @@ export default function CreationProduit({ refresh }: { refresh: () => void }) {
           </div>
           <div>
             <label style={labelS}>DÉSIGNATION COMPLÈTE (NOM DU PRODUIT)</label>
-            <input value={f.designation} onChange={e => setF({ ...f, designation: e.target.value })} style={inputStyle} placeholder="Ex: PARACETAMOL 500MG BOITE DE 10 PLAQUETTES..." />
+            <input value={f.designation} onChange={e => setF({ ...f, designation: e.target.value })} style={inputStyle} placeholder="Ex: PARACETAMOL..." />
           </div>
           <div>
             <label style={labelS}>RAYON / EMPLACEMENT</label>
@@ -139,7 +170,9 @@ export default function CreationProduit({ refresh }: { refresh: () => void }) {
             <label style={labelS}>PRIX DE VENTE PUBLIC</label>
             <input type="number" value={f.pVente} onChange={e => setF({ ...f, pVente: e.target.value })} style={{ ...inputStyle, borderColor: '#2ecc71', borderWidth: '2px' }} placeholder="0" />
           </div>
-          <button onClick={handleSave} style={btnSave}>Créer le produit</button>
+          <button onClick={handleSave} style={{ ...btnSave, background: editingId ? '#f39c12' : '#3498db' }}>
+            {editingId ? "Sauvegarder Modifications" : "Créer le produit"}
+          </button>
         </div>
       </div>
 
@@ -159,17 +192,18 @@ export default function CreationProduit({ refresh }: { refresh: () => void }) {
           <thead>
             <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
               <th style={tdStyle}>CIP</th>
-              <th style={{ ...tdStyle, width: '35%' }}>Désignation</th>
+              <th style={{ ...tdStyle, width: '30%' }}>Désignation</th>
               <th style={tdStyle}>Rayon</th>
               <th style={tdStyle}>P. Achat</th>
               <th style={tdStyle}>P. Vente</th>
               <th style={{ ...tdStyle, textAlign: 'center' }}>Stock Dispo</th>
+              <th style={{ ...tdStyle, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {paginatedData.length > 0 ? (
               paginatedData.map(a => (
-                <tr key={a.id} style={trStyle}>
+                <tr key={a.id} style={{ ...trStyle, background: editingId === a.id ? '#fff9db' : 'transparent' }}>
                   <td style={tdStyle}><code style={{ color: '#e67e22' }}>{a.cip}</code></td>
                   <td style={tdStyle}><strong>{a.designation}</strong></td>
                   <td style={tdStyle}><span style={rayonBadge}>{a.nom_rayon || 'Non classé'}</span></td>
@@ -184,11 +218,14 @@ export default function CreationProduit({ refresh }: { refresh: () => void }) {
                       {a.quantite_stock}
                     </div>
                   </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    <button onClick={() => handleEdit(a)} style={btnEdit}>✏️ Modifier</button>
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#95a5a6' }}>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#95a5a6' }}>
                   <div style={{ fontSize: '48px', marginBottom: '10px' }}>📦</div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '10px' }}>Aucun produit trouvé</div>
                   <div style={{ fontSize: '14px' }}>Commencez par créer votre premier produit ci-dessus</div>
@@ -214,6 +251,7 @@ const cardStyle: React.CSSProperties = { background: 'white', padding: '25px', b
 const inputStyle: React.CSSProperties = { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', boxSizing: 'border-box', fontSize: '14px' };
 const labelS: React.CSSProperties = { fontSize: '11px', fontWeight: 'bold', color: '#7f8c8d', display: 'block', marginBottom: '5px', letterSpacing: '0.5px' };
 const btnSave: React.CSSProperties = { background: '#3498db', color: 'white', border: 'none', padding: '15px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' };
+const btnEdit: React.CSSProperties = { background: '#f1c40f', color: '#333', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' };
 const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse' };
 const tdStyle: React.CSSProperties = { padding: '15px', textAlign: 'left', fontSize: '14px' };
 const trStyle: React.CSSProperties = { borderBottom: '1px solid #f1f1f1' };

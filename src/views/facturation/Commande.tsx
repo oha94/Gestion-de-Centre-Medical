@@ -82,8 +82,8 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
     const loadProducts = async () => {
         const db = await getDb();
         console.log("Loading products with CAST...");
-        const res = await db.select<any[]>("SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat FROM stock_articles ORDER BY designation ASC");
-        setProducts(res);
+        const res = await db.select<any[]>("SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat FROM stock_articles ORDER BY designation ASC");
+        setProducts(res.map(p => ({ ...p, quantite_stock: parseFloat(p.quantite_stock || "0"), prix_achat: parseFloat(p.prix_achat || "0") })));
     };
 
     const loadHistory = async () => {
@@ -174,7 +174,7 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
             // 1. Rupture (Stock <= 0)
             if (smartConfig.rupture) {
                 const res = await db.select<any[]>(`
-                    SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat 
+                    SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat 
                     FROM stock_articles 
                     WHERE quantite_stock <= 0
                 `);
@@ -186,7 +186,7 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
             // 2. Critical (Stock < 2) - User Request
             if (smartConfig.critical) {
                 const res = await db.select<any[]>(`
-                    SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat 
+                    SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat 
                     FROM stock_articles 
                     WHERE quantite_stock > 0 AND quantite_stock < 2
                 `);
@@ -198,7 +198,7 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
             // 3. Seuil (Stock <= 5)
             if (smartConfig.seuil) {
                 const res = await db.select<any[]>(`
-                    SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat 
+                    SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat 
                     FROM stock_articles 
                     WHERE quantite_stock > 0 AND quantite_stock <= 5
                 `);
@@ -215,7 +215,7 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
             // Or maybe just to list them. I will list them with 0 suggested so user can decide.
             if (smartConfig.surstock) {
                 const res = await db.select<any[]>(`
-                    SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat 
+                    SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat 
                     FROM stock_articles 
                     WHERE quantite_stock > 4
                 `);
@@ -227,7 +227,7 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
             // 5. Restocking (Sales based)
             if (smartConfig.restock) {
                 const resSales = await db.select<any[]>(`
-                    SELECT v.article_id, v.acte_libelle, sa.designation, CAST(sa.quantite_stock AS DOUBLE) as quantite_stock, CAST(sa.prix_achat AS DOUBLE) as prix_achat
+                    SELECT v.article_id, v.acte_libelle, sa.designation, CAST(sa.quantite_stock AS CHAR) as quantite_stock, CAST(sa.prix_achat AS CHAR) as prix_achat
                     FROM ventes v
                     JOIN stock_articles sa ON v.article_id = sa.id
                     WHERE v.date_vente >= DATE_SUB(CURDATE(), INTERVAL ${smartConfig.restockPeriod} DAY)

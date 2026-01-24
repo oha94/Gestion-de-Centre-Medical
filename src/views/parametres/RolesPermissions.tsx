@@ -41,6 +41,35 @@ export default function RolesPermissions() {
         );
         console.log("Role 'Gestionnaire' created.");
       }
+      // 3. Clean up duplicates in app_role_permissions
+      await db.execute(`
+        DELETE t1 FROM app_role_permissions t1
+        INNER JOIN app_role_permissions t2 
+        WHERE t1.id > t2.id AND t1.role_id = t2.role_id AND t1.menu_id = t2.menu_id
+      `);
+
+      // 4. Ensure Unique Index
+      try {
+        await db.execute("CREATE UNIQUE INDEX idx_role_menu ON app_role_permissions (role_id, menu_id)");
+      } catch (e) {
+        // Ignore if exists
+      }
+
+      // 5. FIX: Ensure ID is AUTO_INCREMENT (Common fatal error 1364)
+      try {
+        // Step A: Ensure ID is a Key (Primary) - Required before Auto Increment
+        try {
+          await db.execute("ALTER TABLE app_role_permissions ADD PRIMARY KEY (id)");
+        } catch (e: any) {
+          // Ignore if already exists (error 1068 or similar)
+        }
+
+        // Step B: Now set Auto Increment
+        await db.execute("ALTER TABLE app_role_permissions MODIFY COLUMN id INTEGER NOT NULL AUTO_INCREMENT");
+      } catch (e) {
+        // Might fail if not MySQL or already correct
+        console.warn("Auto-increment fix skipped/failed:", e);
+      }
     } catch (e) {
       console.error("Schema check failed:", e);
     }
@@ -130,8 +159,9 @@ export default function RolesPermissions() {
         );
         setPermissions([...permissions, menuId]);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Erreur toggle permission:", e);
+      alert("❌ Erreur lors de la modification de la permission : " + e.message);
     }
   };
 
@@ -578,7 +608,7 @@ export default function RolesPermissions() {
                           />
                           <span style={{ fontSize: '20px', marginRight: '8px' }}>{menu.icone}</span>
                           <span style={{ fontWeight: permissions.includes(menu.id) ? 'bold' : 'normal', color: '#2c3e50' }}>
-                            {menu.libelle}
+                            {menu.libelle} <span style={{ fontSize: '10px', color: '#95a5a6', marginLeft: '5px' }}>({menu.code})</span>
                           </span>
                         </label>
                       ))}

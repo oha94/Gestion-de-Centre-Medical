@@ -1,6 +1,9 @@
 import Database from "@tauri-apps/plugin-sql";
 
 
+let dbInstance: Database | null = null;
+let dbUrlLoaded: string = "";
+
 export const getDb = async () => {
   const configStr = localStorage.getItem("db_config");
   if (!configStr) {
@@ -8,7 +11,14 @@ export const getDb = async () => {
   }
   const config = JSON.parse(configStr);
   const dbUrl = `mysql://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}`;
-  return await Database.load(dbUrl);
+
+  if (dbInstance && dbUrlLoaded === dbUrl) {
+    return dbInstance;
+  }
+
+  dbInstance = await Database.load(dbUrl);
+  dbUrlLoaded = dbUrl;
+  return dbInstance;
 };
 
 // Helper to get company info for prints

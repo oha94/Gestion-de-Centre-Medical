@@ -3,7 +3,11 @@ import { getDb, getCompanyInfo } from '../../lib/db';
 import { exportToExcel } from '../../lib/exportUtils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+import { useAuth } from '../../contexts/AuthContext';
+
 export default function Commande({ currentUser }: { currentUser?: any }) {
+    const { user, canEdit, canDelete, canPrint } = useAuth();
+    // currentUser was used for printing and access check. Now using context.
     const [activeTab, setActiveTab] = useState<'SMART' | 'MANUAL' | 'HISTORY'>('SMART');
     const [cart, setCart] = useState<any[]>([]); // { id, designation, stock, qty, price, reason }
     const [loading, setLoading] = useState(false);
@@ -69,6 +73,26 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
                 )
             `);
         } catch (e) { console.error("Migration error", e); }
+
+        try {
+            // 1. Ensure ID is Primary Key (fix for Error 1075)
+            try { await db.execute("ALTER TABLE commandes ADD PRIMARY KEY (id)"); } catch (pkError) { /* Ignore if PK exists */ }
+
+            // 2. Apply Auto Increment
+            await db.execute("ALTER TABLE commandes MODIFY COLUMN id INT AUTO_INCREMENT");
+            console.log("✅ Fixed: 'commandes' table ID is now Auto-Increment.");
+        } catch (e) {
+            console.log("Auto increment fix final attempt:", e);
+        }
+
+        try {
+            // Fix for commande_details as well
+            try { await db.execute("ALTER TABLE commande_details ADD PRIMARY KEY (id)"); } catch (pkError) { /* Ignore */ }
+            await db.execute("ALTER TABLE commande_details MODIFY COLUMN id INT AUTO_INCREMENT");
+            console.log("✅ Fixed: 'commande_details' table ID is now Auto-Increment.");
+        } catch (e) {
+            console.log("Auto increment fix for details failed:", e);
+        }
     };
 
     const loadFournisseurs = async () => {
@@ -82,8 +106,8 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
     const loadProducts = async () => {
         const db = await getDb();
         console.log("Loading products with CAST...");
-        const res = await db.select<any[]>("SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat FROM stock_articles ORDER BY designation ASC");
-        setProducts(res);
+        const res = await db.select<any[]>("SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat FROM stock_articles ORDER BY designation ASC");
+        setProducts(res.map(p => ({ ...p, quantite_stock: parseFloat(p.quantite_stock || "0"), prix_achat: parseFloat(p.prix_achat || "0") })));
     };
 
     const loadHistory = async () => {
@@ -174,36 +198,36 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
             // 1. Rupture (Stock <= 0)
             if (smartConfig.rupture) {
                 const res = await db.select<any[]>(`
-                    SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat 
+                    SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat 
                     FROM stock_articles 
                     WHERE quantite_stock <= 0
                 `);
                 res.forEach(p => {
-                    proposals[p.id] = { ...p, reason: 'Rupture (<=0)', suggested: 10 };
+                    proposals[p.id] = { ...p, quantite_stock: parseFloat(p.quantite_stock), prix_achat: parseFloat(p.prix_achat), reason: 'Rupture (<=0)', suggested: 10 };
                 });
             }
 
             // 2. Critical (Stock < 2) - User Request
             if (smartConfig.critical) {
                 const res = await db.select<any[]>(`
-                    SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat 
+                    SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat 
                     FROM stock_articles 
                     WHERE quantite_stock > 0 AND quantite_stock < 2
                 `);
                 res.forEach(p => {
-                    if (!proposals[p.id]) proposals[p.id] = { ...p, reason: 'Critique (<2)', suggested: 5 };
+                    if (!proposals[p.id]) proposals[p.id] = { ...p, quantite_stock: parseFloat(p.quantite_stock), prix_achat: parseFloat(p.prix_achat), reason: 'Critique (<2)', suggested: 5 };
                 });
             }
 
             // 3. Seuil (Stock <= 5)
             if (smartConfig.seuil) {
                 const res = await db.select<any[]>(`
-                    SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat 
+                    SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat 
                     FROM stock_articles 
                     WHERE quantite_stock > 0 AND quantite_stock <= 5
                 `);
                 res.forEach(p => {
-                    if (!proposals[p.id]) proposals[p.id] = { ...p, reason: 'Seuil Bas (<=5)', suggested: 5 };
+                    if (!proposals[p.id]) proposals[p.id] = { ...p, quantite_stock: parseFloat(p.quantite_stock), prix_achat: parseFloat(p.prix_achat), reason: 'Seuil Bas (<=5)', suggested: 5 };
                 });
             }
 
@@ -215,19 +239,19 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
             // Or maybe just to list them. I will list them with 0 suggested so user can decide.
             if (smartConfig.surstock) {
                 const res = await db.select<any[]>(`
-                    SELECT id, designation, CAST(quantite_stock AS DOUBLE) as quantite_stock, CAST(prix_achat AS DOUBLE) as prix_achat 
+                    SELECT id, designation, CAST(quantite_stock AS CHAR) as quantite_stock, CAST(prix_achat AS CHAR) as prix_achat 
                     FROM stock_articles 
                     WHERE quantite_stock > 4
                 `);
                 res.forEach(p => {
-                    if (!proposals[p.id]) proposals[p.id] = { ...p, reason: 'Stock Confort (>4)', suggested: 0 };
+                    if (!proposals[p.id]) proposals[p.id] = { ...p, quantite_stock: parseFloat(p.quantite_stock), prix_achat: parseFloat(p.prix_achat), reason: 'Stock Confort (>4)', suggested: 0 };
                 });
             }
 
             // 5. Restocking (Sales based)
             if (smartConfig.restock) {
                 const resSales = await db.select<any[]>(`
-                    SELECT v.article_id, v.acte_libelle, sa.designation, CAST(sa.quantite_stock AS DOUBLE) as quantite_stock, CAST(sa.prix_achat AS DOUBLE) as prix_achat
+                    SELECT v.article_id, v.acte_libelle, sa.designation, CAST(sa.quantite_stock AS CHAR) as quantite_stock, CAST(sa.prix_achat AS CHAR) as prix_achat
                     FROM ventes v
                     JOIN stock_articles sa ON v.article_id = sa.id
                     WHERE v.date_vente >= DATE_SUB(CURDATE(), INTERVAL ${smartConfig.restockPeriod} DAY)
@@ -246,8 +270,8 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
                         proposals[row.article_id] = {
                             id: row.article_id,
                             designation: row.designation,
-                            quantite_stock: row.quantite_stock,
-                            prix_achat: row.prix_achat,
+                            quantite_stock: parseFloat(row.quantite_stock || "0"),
+                            prix_achat: parseFloat(row.prix_achat || "0"),
                             reason: `Vendu ${qteSold} récemment`,
                             suggested: 0
                         };
@@ -310,6 +334,7 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
 
     // --- ACTIONS ---
     const saveOrder = async () => {
+        if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
         if (!orderMeta.fournisseurId) return alert("Veuillez sélectionner un fournisseur.");
         if (cart.length === 0) return alert("Le panier est vide.");
 
@@ -358,6 +383,7 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
     };
 
     const deleteOrder = async (id: number) => {
+        if (!canDelete()) return alert("⛔ Vous n'avez pas les droits de suppression.");
         if (!confirm("Supprimer définitivement cette commande ?")) return;
         try {
             const db = await getDb();
@@ -368,11 +394,12 @@ export default function Commande({ currentUser }: { currentUser?: any }) {
     };
 
     const editOrder = async (cmd: any) => {
+        if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
         if (!confirm("Recharger cette commande dans le panier ? (Le panier actuel sera perdu)")) return;
         try {
             const db = await getDb();
             const details = await db.select<any[]>(`
-                SELECT cd.*, a.designation, CAST(a.quantite_stock AS DOUBLE) as stock
+                SELECT cd.*, a.designation, a.quantite_stock as stock
                 FROM commande_details cd
                 JOIN stock_articles a ON cd.article_id = a.id
                 WHERE cd.commande_id = ?
@@ -485,7 +512,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
             </div>
 
             <div class="footer">
-                Imprimé le ${new Date().toLocaleString('fr-FR')} (Brouillon) par ${currentUser?.nom_complet || 'Admin'}
+                Imprimé le ${new Date().toLocaleString('fr-FR')} (Brouillon) par ${user?.nom_complet || 'Admin'}
             </div>
         </body>
         </html>
@@ -612,7 +639,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                         </div>
 
                         <div class="footer">
-                            Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Utilisateur'}
+                            Imprimé le ${new Date().toLocaleString('fr-FR')} par ${user?.nom_complet || 'Utilisateur'}
                         </div>
                     </body>
                 </html>
@@ -706,12 +733,15 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                                         <td style={{ padding: '10px' }}>{h.fournisseur_nom || '-'}</td>
                                         <td style={{ padding: '10px' }}>{h.items_count}</td>
                                         <td style={{ padding: '10px', display: 'flex', gap: '10px' }}>
-                                            {/* Allow if undefined or true */}
-                                            {(currentUser?.can_print !== false && currentUser?.can_print !== 0) && (
+                                            {(canPrint()) && (
                                                 <button onClick={() => printHistoryOrder(h)} style={{ cursor: 'pointer', border: 'none', background: '#3498db', color: 'white', padding: '5px 10px', borderRadius: '5px' }}>🖨️</button>
                                             )}
-                                            <button onClick={() => editOrder(h)} style={{ cursor: 'pointer', border: 'none', background: '#f6ad55', color: 'white', padding: '5px 10px', borderRadius: '5px' }}>✏️ Modifier</button>
-                                            <button onClick={() => deleteOrder(h.id)} style={{ cursor: 'pointer', border: 'none', background: '#e74c3c', color: 'white', padding: '5px 10px', borderRadius: '5px' }}>🗑️</button>
+                                            {canEdit() && (
+                                                <button onClick={() => editOrder(h)} style={{ cursor: 'pointer', border: 'none', background: '#f6ad55', color: 'white', padding: '5px 10px', borderRadius: '5px' }}>✏️ Modifier</button>
+                                            )}
+                                            {canDelete() && (
+                                                <button onClick={() => deleteOrder(h.id)} style={{ cursor: 'pointer', border: 'none', background: '#e74c3c', color: 'white', padding: '5px 10px', borderRadius: '5px' }}>🗑️</button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}

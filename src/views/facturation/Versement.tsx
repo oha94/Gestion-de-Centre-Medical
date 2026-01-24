@@ -1,81 +1,81 @@
+
 import { useState, useEffect } from "react";
 import { getDb } from "../../lib/db";
 
 export default function Versement({ currentUser }: { currentUser?: any }) {
     const [history, setHistory] = useState<any[]>([]);
-    // User Selection (For Admin)
-    const [users, setUsers] = useState<any[]>([]);
-    const [selectedUserId, setSelectedUserId] = useState<number>(currentUser?.id || 0);
 
     // Form
-    const [amount, setAmount] = useState("");
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [observation, setObservation] = useState("");
+
+    // Paiement 1
+    const [amount, setAmount] = useState("");
     const [modePaiement, setModePaiement] = useState("ESPECES");
 
-    useEffect(() => {
-        loadUsers();
-    }, [date]); // Reload users when date changes
+    // Paiement 2
+    const [useSecondPayment, setUseSecondPayment] = useState(false);
+    const [amount2, setAmount2] = useState("");
+    const [modePaiement2, setModePaiement2] = useState("WAVE");
 
     useEffect(() => {
-        if (selectedUserId) {
+        if (currentUser?.id) {
             loadHistory();
         }
-    }, [selectedUserId, date]);
-
-    const loadUsers = async () => {
-        try {
-            const db = await getDb();
-            // Filter users who have activity on the selected date
-            const res = await db.select<any[]>(`
-                SELECT DISTINCT u.id, u.nom_complet 
-                FROM app_utilisateurs u
-                WHERE u.id IN (SELECT user_id FROM ventes WHERE DATE(date_vente) = ?)
-                OR u.id IN (SELECT user_id FROM caisse_mouvements WHERE DATE(date_mouvement) = ? AND type IN ('DECAISSEMENT', 'ENCAISSEMENT_RECOUVREMENT'))
-                ORDER BY u.nom_complet
-            `, [date, date]);
-            setUsers(res);
-
-            // If the previously selected user is not in the new list, reset selection (or select first)
-            if (res.length > 0 && !res.find(u => u.id === selectedUserId)) {
-                setSelectedUserId(res[0].id);
-            } else if (res.length === 0) {
-                setSelectedUserId(0);
-            }
-        } catch (e) { console.error(e); }
-    };
-
-
+    }, [currentUser, date]);
 
     const loadHistory = async () => {
         try {
             const db = await getDb();
             const res = await db.select<any[]>(`
-                SELECT * FROM caisse_mouvements 
+SELECT * FROM caisse_mouvements 
                 WHERE type = 'VERSEMENT' 
-                AND user_id = ? 
-                AND DATE(date_mouvement) = ?
-                ORDER BY date_mouvement DESC
-            `, [selectedUserId, date]);
-            setHistory(res);
+                AND user_id = ?
+    AND DATE(date_mouvement) = ?
+        ORDER BY date_mouvement DESC
+            `, [currentUser?.id || 0, date]);
             setHistory(res);
         } catch (e) { console.error(e); }
     };
 
     const handleSave = async () => {
-        if (!amount || parseFloat(amount) <= 0) return alert("Montant invalide");
+        const mt1 = parseFloat(amount) || 0;
+        const mt2 = useSecondPayment ? (parseFloat(amount2) || 0) : 0;
 
-        if (!confirm(`Confirmer le versement de ${parseInt(amount).toLocaleString()} F (${modePaiement}) ?`)) return;
+        if (mt1 <= 0 && mt2 <= 0) return alert("Montant invalide");
+        if (!currentUser?.id) return alert("Erreur: Aucun utilisateur connecté identifié.");
+
+        const total = mt1 + mt2;
+        let msg = `Confirmer le versement total de ${total.toLocaleString()} F ?\n\n`;
+        if (mt1 > 0) msg += `- ${mt1.toLocaleString()} F en ${modePaiement} \n`;
+        if (mt2 > 0) msg += `- ${mt2.toLocaleString()} F en ${modePaiement2} \n`;
+
+        if (!confirm(msg)) return;
 
         try {
             const db = await getDb();
-            await db.execute(`
-                INSERT INTO caisse_mouvements (type, montant, date_mouvement, motif, user_id, mode_paiement, reference)
-                VALUES ('VERSEMENT', ?, ?, ?, ?, ?, ?)
-            `, [amount, new Date().toISOString(), observation || `Versement ${modePaiement}`, selectedUserId, modePaiement, `VERS-${Date.now()}`]);
+            const timestamp = date + ' ' + new Date().toLocaleTimeString('fr-FR', { hour12: false });
+
+            // Versement 1
+            if (mt1 > 0) {
+                await db.execute(`
+                    INSERT INTO caisse_mouvements(type, montant, date_mouvement, motif, user_id, mode_paiement, reference)
+VALUES('VERSEMENT', ?, ?, ?, ?, ?, ?)
+                `, [mt1, timestamp, observation || `Versement ${modePaiement} `, currentUser.id, modePaiement, `VERS - ${Date.now()} -1`]);
+            }
+
+            // Versement 2
+            if (mt2 > 0) {
+                await db.execute(`
+                    INSERT INTO caisse_mouvements(type, montant, date_mouvement, motif, user_id, mode_paiement, reference)
+VALUES('VERSEMENT', ?, ?, ?, ?, ?, ?)
+                `, [mt2, timestamp, observation || `Versement ${modePaiement2} `, currentUser.id, modePaiement2, `VERS - ${Date.now()} -2`]);
+            }
 
             alert("Versement enregistré !");
             setAmount("");
+            setAmount2("");
+            setUseSecondPayment(false);
             setObservation("");
             loadHistory();
         } catch (e) {
@@ -93,104 +93,134 @@ export default function Versement({ currentUser }: { currentUser?: any }) {
         } catch (e) { console.error(e); }
     };
 
+    const PAYMENT_OPTIONS = [
+        { value: 'ESPECES', label: 'Espèces', color: '#2ecc71', icon: '💵' },
+        { value: 'TPE', label: 'Carte (TPE)', color: '#34495e', icon: '💳' },
+        { value: 'CHEQUE', label: 'Chèque', color: '#95a5a6', icon: '📨' },
+        { value: 'VIREMENT', label: 'Virement', color: '#7f8c8d', icon: '🏦' },
+        { value: 'WAVE', label: 'Wave', img: '/src/assets/payment_logos/wave.svg' },
+        { value: 'ORANGE_MONEY', label: 'Orange Money', img: '/src/assets/payment_logos/om.svg' },
+        { value: 'MTN_MONEY', label: 'MTN MoMo', img: '/src/assets/payment_logos/mtn.svg' },
+        { value: 'MOOV_MONEY', label: 'Moov Money', img: '/src/assets/payment_logos/moov.svg' },
+    ];
+
+    const renderPaymentSelector = (selected: string, onSelect: (val: string) => void) => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+            {PAYMENT_OPTIONS.map(opt => (
+                <div
+                    key={opt.value}
+                    onClick={() => onSelect(opt.value)}
+                    style={{
+                        padding: '8px',
+                        border: selected === opt.value ? '2px solid #3498db' : '1px solid #eee',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        background: selected === opt.value ? '#eaf2f8' : 'white',
+                        textAlign: 'center',
+                        transition: '0.2s',
+                        opacity: selected === opt.value ? 1 : 0.7
+                    }}
+                >
+                    <div style={{ height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px' }}>
+                        {opt.img ? (
+                            <img src={opt.img} alt={opt.label} style={{ height: '25px', maxWidth: '100%', borderRadius: '4px' }} />
+                        ) : (
+                            <span style={{ fontSize: '18px' }}>{opt.icon}</span>
+                        )}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+
     return (
         <div style={{ padding: '20px', background: '#f0f2f5', height: '100%', display: 'flex', gap: '20px' }}>
 
             {/* LEFT: FORM (Fixed Width & Sticky Button) */}
-            <div style={{ flex: '0 0 400px', background: 'white', borderRadius: '15px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ padding: '25px', borderBottom: '1px solid #eee', background: '#fff' }}>
+            <div style={{ flex: '0 0 450px', background: 'white', borderRadius: '15px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ padding: '20px', borderBottom: '1px solid #eee', background: '#fff' }}>
                     <h2 style={{ margin: 0, color: '#2980b9' }}>📥 Nouveau Versement</h2>
                 </div>
 
-                <div style={{ flex: 1, overflowY: 'auto', padding: '25px' }}>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
 
-                    <div style={{ marginBottom: '20px' }}>
-                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', color: '#34495e' }}>Date du versement</label>
-                        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #bdc3c7', fontSize: '16px' }} />
-                    </div>
-
-                    <div style={{ marginBottom: '20px' }}>
-                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', color: '#34495e' }}>Pour la caisse de :</label>
-                        <select
-                            value={selectedUserId}
-                            onChange={e => setSelectedUserId(parseInt(e.target.value))}
-                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #3498db', fontWeight: 'bold', fontSize: '16px', background: '#eaf2f8' }}
-                        >
-                            {users.map(u => (
-                                <option key={u.id} value={u.id}>{u.nom_complet}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div style={{ marginBottom: '20px' }}>
-                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', color: '#34495e' }}>Mode de versement</label>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
-                            {[
-                                { value: 'ESPECES', label: 'Espèces', color: '#2ecc71', icon: '💵' },
-                                { value: 'TPE', label: 'Carte (TPE)', color: '#34495e', icon: '💳' },
-                                { value: 'CHEQUE', label: 'Chèque', color: '#95a5a6', icon: '📨' },
-                                { value: 'VIREMENT', label: 'Virement', color: '#7f8c8d', icon: '🏦' },
-                                { value: 'WAVE', label: 'Wave', img: '/src/assets/payment_logos/wave.svg' },
-                                { value: 'ORANGE_MONEY', label: 'Orange Money', img: '/src/assets/payment_logos/om.svg' },
-                                { value: 'MTN_MONEY', label: 'MTN MoMo', img: '/src/assets/payment_logos/mtn.svg' },
-                                { value: 'MOOV_MONEY', label: 'Moov Money', img: '/src/assets/payment_logos/moov.svg' },
-                            ].map(opt => (
-                                <div
-                                    key={opt.value}
-                                    onClick={() => setModePaiement(opt.value)}
-                                    style={{
-                                        padding: '10px',
-                                        border: modePaiement === opt.value ? '2px solid #3498db' : '1px solid #eee',
-                                        borderRadius: '10px',
-                                        cursor: 'pointer',
-                                        background: modePaiement === opt.value ? '#eaf2f8' : 'white',
-                                        textAlign: 'center',
-                                        transition: '0.2s'
-                                    }}
-                                >
-                                    <div style={{ height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '5px' }}>
-                                        {opt.img ? (
-                                            <img src={opt.img} alt={opt.label} style={{ height: '35px', maxWidth: '100%', borderRadius: '8px' }} />
-                                        ) : (
-                                            <span style={{ fontSize: '24px' }}>{opt.icon}</span>
-                                        )}
-                                    </div>
-                                    <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#2c3e50', lineHeight: '1.2' }}>{opt.label}</div>
-                                </div>
-                            ))}
+                    <div style={{ marginBottom: '15px', display: 'flex', gap: '10px' }}>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#34495e', fontSize: '0.9rem' }}>Date</label>
+                            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #bdc3c7' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#34495e', fontSize: '0.9rem' }}>Caisse de :</label>
+                            <div style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontWeight: 'bold', background: '#f8f9fa', color: '#7f8c8d' }}>
+                                👤 {currentUser?.nom_complet || 'Utilisateur'}
+                            </div>
                         </div>
                     </div>
 
-                    <div style={{ marginBottom: '20px' }}>
-                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', color: '#34495e' }}>Montant Versé</label>
-                        <input
-                            type="number"
-                            value={amount}
-                            onChange={e => setAmount(e.target.value)}
-                            placeholder="0"
-                            style={{ width: '100%', padding: '15px', borderRadius: '10px', border: '2px solid #27ae60', fontSize: '24px', fontWeight: 'bold', color: '#27ae60', textAlign: 'right' }}
-                        />
+                    {/* BLOC 1er PAIEMENT */}
+                    <div style={{ marginBottom: '20px', padding: '15px', background: '#f8f9fa', borderRadius: '10px', border: '1px solid #eee' }}>
+                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '10px', color: '#2c3e50' }}>1er Moyen de paiement</label>
+                        {renderPaymentSelector(modePaiement, setModePaiement)}
+                        <div style={{ marginTop: '10px' }}>
+                            <input
+                                type="number"
+                                value={amount}
+                                onChange={e => setAmount(e.target.value)}
+                                placeholder="Montant 1"
+                                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '2px solid #bdc3c7', fontSize: '18px', fontWeight: 'bold', color: '#333', textAlign: 'right' }}
+                            />
+                        </div>
                     </div>
 
+                    {/* BLOC 2eme PAIEMENT (OPTIONNEL) */}
+                    {useSecondPayment ? (
+                        <div style={{ marginBottom: '20px', padding: '15px', background: '#ebf5fb', borderRadius: '10px', border: '1px dashed #3498db' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                <label style={{ display: 'block', fontWeight: 'bold', color: '#3498db' }}>2ème Moyen de paiement</label>
+                                <button onClick={() => { setUseSecondPayment(false); setAmount2("") }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e74c3c' }}>❌ Supprimer</button>
+                            </div>
+                            {renderPaymentSelector(modePaiement2, setModePaiement2)}
+                            <div style={{ marginTop: '10px' }}>
+                                <input
+                                    type="number"
+                                    value={amount2}
+                                    onChange={e => setAmount2(e.target.value)}
+                                    placeholder="Montant 2"
+                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '2px solid #3498db', fontSize: '18px', fontWeight: 'bold', color: '#3498db', textAlign: 'right' }}
+                                />
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                            <button onClick={() => setUseSecondPayment(true)} style={{ background: '#eaf2f8', color: '#3498db', border: '1px dashed #3498db', padding: '10px 20px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold' }}>
+                                + Ajouter un 2ème moyen de paiement
+                            </button>
+                        </div>
+                    )}
+
+
                     <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', color: '#34495e' }}>Observation</label>
+                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', color: '#34495e', fontSize: '0.9rem' }}>Observation</label>
                         <textarea
                             value={observation}
                             onChange={e => setObservation(e.target.value)}
                             placeholder="Note optionnelle..."
-                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #bdc3c7', minHeight: '80px', fontFamily: 'inherit' }}
+                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #bdc3c7', minHeight: '60px', fontFamily: 'inherit' }}
                         />
                     </div>
                 </div>
 
                 <div style={{ padding: '20px', borderTop: '1px solid #eee', background: '#f9f9f9' }}>
-                    <button onClick={handleSave} style={{ width: '100%', padding: '18px', background: '#2980b9', color: 'white', border: 'none', borderRadius: '12px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(41, 128, 185, 0.2)', transition: 'transform 0.1s' }}>
+                    <div style={{ textAlign: 'right', marginBottom: '10px', fontWeight: 'bold', fontSize: '1.2rem' }}>
+                        Total: {((parseFloat(amount) || 0) + (useSecondPayment ? parseFloat(amount2) || 0 : 0)).toLocaleString()} F
+                    </div>
+                    <button onClick={handleSave} style={{ width: '100%', padding: '15px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '12px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(39, 174, 96, 0.2)', transition: 'transform 0.1s' }}>
                         VALIDER LE VERSEMENT
                     </button>
                 </div>
             </div>
 
-            {/* RIGHT: HISTORY LIST (Recap removed) */}
+            {/* RIGHT: HISTORY LIST */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div style={{ flex: 1, background: 'white', padding: '20px', borderRadius: '15px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
                     <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0 }}>Historique du {new Date(date).toLocaleDateString()}</h3>
@@ -209,7 +239,7 @@ export default function Versement({ currentUser }: { currentUser?: any }) {
                                             <td style={{ padding: '10px' }}>
                                                 <div>{h.motif}</div>
                                                 <div style={{ fontSize: '0.8rem', color: '#bdc3c7' }}>{h.reference}</div>
-                                                {h.mode_paiement !== 'ESPECES' && <span style={{ fontSize: '0.7rem', background: '#ecf0f1', padding: '2px 5px', borderRadius: '3px', marginLeft: '5px' }}>{h.mode_paiement}</span>}
+                                                {h.mode_paiement && <span style={{ fontSize: '0.7rem', background: '#ecf0f1', padding: '2px 5px', borderRadius: '3px', marginLeft: '5px' }}>{h.mode_paiement}</span>}
                                             </td>
                                             <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', color: '#27ae60' }}>
                                                 {h.montant.toLocaleString()} F

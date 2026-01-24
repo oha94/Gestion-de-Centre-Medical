@@ -29,7 +29,37 @@ export default function AvoirFournisseurs() {
   const [avoirSelectionne, setAvoirSelectionne] = useState<any>(null);
   const [detailsAvoir, setDetailsAvoir] = useState<any[]>([]);
 
+  // Fix Auto-Increment for Avoir tables
+  const runMigrations = async () => {
+    try {
+      const db = await getDb();
+
+      // 1. stock_avoirs_fournisseurs
+      try { await db.execute("ALTER TABLE stock_avoirs_fournisseurs ADD PRIMARY KEY (id)"); } catch (e) { /* Ignore */ }
+      try {
+        await db.execute("ALTER TABLE stock_avoirs_fournisseurs MODIFY COLUMN id INT AUTO_INCREMENT");
+        console.log("✅ Fixed: 'stock_avoirs_fournisseurs' ID is now Auto-Increment.");
+      } catch (e) { console.error("Fix Avoir table failed:", e); }
+
+      // 2. stock_avoir_details
+      try { await db.execute("ALTER TABLE stock_avoir_details ADD PRIMARY KEY (id)"); } catch (e) { /* Ignore */ }
+      try {
+        await db.execute("ALTER TABLE stock_avoir_details MODIFY COLUMN id INT AUTO_INCREMENT");
+        console.log("✅ Fixed: 'stock_avoir_details' ID is now Auto-Increment.");
+      } catch (e) { console.error("Fix Avoir Details table failed:", e); }
+
+      // 3. stock_avoir_mouvements
+      try { await db.execute("ALTER TABLE stock_avoir_mouvements ADD PRIMARY KEY (id)"); } catch (e) { /* Ignore */ }
+      try {
+        await db.execute("ALTER TABLE stock_avoir_mouvements MODIFY COLUMN id INT AUTO_INCREMENT");
+        console.log("✅ Fixed: 'stock_avoir_mouvements' ID is now Auto-Increment.");
+      } catch (e) { console.error("Fix Avoir Mouvements table failed:", e); }
+
+    } catch (e) { console.error("Migration wrapper error:", e); }
+  };
+
   useEffect(() => {
+    runMigrations();
     chargerDonnees();
   }, []);
 
@@ -44,7 +74,7 @@ export default function AvoirFournisseurs() {
       // Charger les BR qui n'ont pas encore d'avoir
       const res = await db.select<any[]>(`
         SELECT br.id, br.numero_br, br.date_br, 
-               CAST(br.montant_total AS DOUBLE) as montant_total,
+               CAST(br.montant_total AS CHAR) as montant_total,
                bl.numero_bl, bl.date_bl,
                f.nom as nom_fournisseur
         FROM stock_bons_retour br
@@ -54,7 +84,7 @@ export default function AvoirFournisseurs() {
         WHERE a.id IS NULL
         ORDER BY br.date_br DESC
       `);
-      setBonsRetour(res);
+      setBonsRetour(res.map(b => ({ ...b, montant_total: parseFloat(b.montant_total || "0") })));
     } catch (e) {
       console.error("Erreur chargement BR:", e);
     }
@@ -65,7 +95,7 @@ export default function AvoirFournisseurs() {
       const db = await getDb();
       const res = await db.select<any[]>(`
         SELECT a.id, a.numero_avoir, a.date_avoir, 
-               CAST(a.montant_total AS DOUBLE) as montant_total,
+               CAST(a.montant_total AS CHAR) as montant_total,
                a.statut, a.observation,
                br.numero_br,
                bl.numero_bl,
@@ -76,7 +106,7 @@ export default function AvoirFournisseurs() {
         JOIN stock_fournisseurs f ON bl.fournisseur_id = f.id
         ORDER BY a.date_avoir DESC
       `);
-      setAvoirs(res);
+      setAvoirs(res.map(av => ({ ...av, montant_total: parseFloat(av.montant_total || "0") })));
     } catch (e) {
       console.error("Erreur chargement avoirs:", e);
     }
@@ -89,10 +119,10 @@ export default function AvoirFournisseurs() {
       // Charger les détails du BR
       const res = await db.select<any[]>(`
         SELECT d.id, d.article_id, 
-               CAST(d.quantite_retour AS DOUBLE) as quantite_retour,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
+               CAST(d.quantite_retour AS CHAR) as quantite_retour,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
                d.motif as motif_retour,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
                r.libelle as rayon
         FROM stock_br_details d
@@ -109,11 +139,11 @@ export default function AvoirFournisseurs() {
         article_id: ligne.article_id,
         designation: ligne.designation,
         cip: ligne.cip,
-        quantite: ligne.quantite_retour,
-        prix_unitaire: ligne.prix_achat_ht,
+        quantite: parseFloat(ligne.quantite_retour || "0"),
+        prix_unitaire: parseFloat(ligne.prix_achat_ht || "0"),
         motif_retour: ligne.motif_retour,
         motif_avoir: "", // À sélectionner
-        total_ligne: ligne.total_ligne,
+        total_ligne: parseFloat(ligne.total_ligne || "0"),
         rayon: ligne.rayon
       }));
 
@@ -157,19 +187,23 @@ export default function AvoirFournisseurs() {
       const montantTotal = lignesAvoir.reduce((sum, l) => sum + l.total_ligne, 0);
 
       // Créer l'avoir avec statut Validé
-      await db.execute(`
+      const resAvoir = await db.execute(`
         INSERT INTO stock_avoirs_fournisseurs 
         (numero_avoir, date_avoir, br_id, montant_total, observation, statut)
         VALUES (?, ?, ?, ?, ?, 'Validé')
       `, [numeroAvoir, dateAvoir, brSelectionne.id, montantTotal, observation]);
 
-      const avoirId = await db.select<any[]>("SELECT LAST_INSERT_ID() as id");
-      const newAvoirId = avoirId[0].id;
+      const newAvoirId = resAvoir.lastInsertId;
+      console.log("🆕 Avoir créé ID:", newAvoirId);
+
+      if (!newAvoirId || newAvoirId <= 0) {
+        throw new Error("L'ID de l'avoir retourné par la base de données est invalide (0 ou null). Échec de l'insertion.");
+      }
 
       // Traiter chaque ligne selon son motif
       for (const ligne of lignesAvoir) {
         // Insérer la ligne de détail
-        await db.execute(`
+        const resDetail = await db.execute(`
           INSERT INTO stock_avoir_details 
           (avoir_id, article_id, quantite, prix_unitaire, motif, total_ligne)
           VALUES (?, ?, ?, ?, ?, ?)
@@ -182,17 +216,22 @@ export default function AvoirFournisseurs() {
           ligne.total_ligne
         ]);
 
-        const detailId = await db.select<any[]>("SELECT LAST_INSERT_ID() as id");
-        const newDetailId = detailId[0].id;
+        const newDetailId = resDetail.lastInsertId;
+        console.log("  - Détail inséré ID:", newDetailId, "pour Avoir ID:", newAvoirId);
+
+        if (!newDetailId || newDetailId <= 0) {
+          console.error("⚠️ Attention: Détail inséré avec ID invalide pour l'article", ligne.article_id);
+          // On continue quand même pour essayer de sauver les autres lignes, mais c'est critique.
+        }
 
         // Traitement selon le motif
         if (ligne.motif_avoir === "Remplacé") {
           // Récupérer le stock actuel
           const stockActuel = await db.select<any[]>(
-            "SELECT CAST(quantite_stock AS DOUBLE) as quantite_stock FROM stock_articles WHERE id = ?",
+            "SELECT CAST(quantite_stock AS CHAR) as quantite_stock FROM stock_articles WHERE id = ?",
             [ligne.article_id]
           );
-          const stockAvant = stockActuel[0].quantite_stock;
+          const stockAvant = parseFloat(stockActuel[0].quantite_stock || "0");
 
           // Remettre le stock comme avant le retour (on ajoute la quantité)
           await db.execute(
@@ -210,10 +249,10 @@ export default function AvoirFournisseurs() {
         else if (ligne.motif_avoir === "Déduit facture") {
           // Traçabilité du mouvement (pas de changement de stock)
           const stockActuel = await db.select<any[]>(
-            "SELECT CAST(quantite_stock AS DOUBLE) as quantite_stock FROM stock_articles WHERE id = ?",
+            "SELECT CAST(quantite_stock AS CHAR) as quantite_stock FROM stock_articles WHERE id = ?",
             [ligne.article_id]
           );
-          const stock = stockActuel[0].quantite_stock;
+          const stock = parseFloat(stockActuel[0].quantite_stock || "0");
 
           await db.execute(`
             INSERT INTO stock_avoir_mouvements 
@@ -246,10 +285,10 @@ export default function AvoirFournisseurs() {
       const db = await getDb();
       const res = await db.select<any[]>(`
         SELECT d.id, d.article_id,
-               CAST(d.quantite AS DOUBLE) as quantite,
-               CAST(d.prix_unitaire AS DOUBLE) as prix_unitaire,
+               CAST(d.quantite AS CHAR) as quantite,
+               CAST(d.prix_unitaire AS CHAR) as prix_unitaire,
                d.motif,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
                r.libelle as rayon
         FROM stock_avoir_details d
@@ -259,7 +298,12 @@ export default function AvoirFournisseurs() {
       `, [avoir.id]);
 
       setAvoirSelectionne(avoir);
-      setDetailsAvoir(res);
+      setDetailsAvoir(res.map(r => ({
+        ...r,
+        quantite: parseFloat(r.quantite || "0"),
+        prix_unitaire: parseFloat(r.prix_unitaire || "0"),
+        total_ligne: parseFloat(r.total_ligne || "0")
+      })));
       setShowDetailsAvoir(true);
     } catch (e) {
       console.error("Erreur détails avoir:", e);
@@ -274,7 +318,7 @@ export default function AvoirFournisseurs() {
 
       // Récupérer les détails pour annuler les mouvements de stock
       const details = await db.select<any[]>(`
-        SELECT article_id, CAST(quantite AS DOUBLE) as quantite, motif
+        SELECT article_id, CAST(quantite AS CHAR) as quantite, motif
         FROM stock_avoir_details
         WHERE avoir_id = ?
       `, [id]);
@@ -285,7 +329,7 @@ export default function AvoirFournisseurs() {
           // Retirer la quantité qui avait été rajoutée
           await db.execute(
             "UPDATE stock_articles SET quantite_stock = quantite_stock - ? WHERE id = ?",
-            [detail.quantite, detail.article_id]
+            [parseFloat(detail.quantite || "0"), detail.article_id]
           );
         }
       }

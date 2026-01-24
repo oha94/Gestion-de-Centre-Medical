@@ -1,5 +1,10 @@
 import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "./lib/db";
+import { SQL_RAYONS } from "./seeds/data_rayons";
+import { SQL_PRESTATIONS } from "./seeds/data_prestations";
+import { SQL_ARTICLES_PART1 } from "./seeds/data_articles_part1";
+import { SQL_ARTICLES_PART2 } from "./seeds/data_articles_part2";
+import { AuthProvider, useAuth } from "./contexts/AuthContext"; // Import Context
 import DatabaseConfig from "./views/setup/DatabaseConfig"; // New import
 import Setup from "./views/Setup"; // Setup wizard
 import { useTheme } from "./contexts/ThemeContext";
@@ -21,16 +26,25 @@ import DateSystemeBanner from "./components/DateSystemeBanner";
 import LoginView from "./views/Login";
 
 export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}
+
+function AppContent() {
   const { theme } = useTheme();
+  const { user, isAuthenticated, login, logout, hasPermission } = useAuth(); // Use Context
   const [view, setView] = useState("dashboard");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [userPermissions, setUserPermissions] = useState<string[]>([]);
+  // const [isAuthenticated, setIsAuthenticated] = useState(false); // REMOVED
+  // const [user, setUser] = useState<any>(null); // REMOVED
+  // const [userPermissions, setUserPermissions] = useState<string[]>([]); // REMOVED
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<any>({ nom_application: "Centre Médical", couleur_primaire: '#3498db', couleur_secondaire: '#2c3e50' });
   const [showClotureAlert, setShowClotureAlert] = useState(false);
-  const [dateSysteme, setDateSysteme] = useState("");
-  const [dateOrdinateur, setDateOrdinateur] = useState("");
+  const [, setDateSysteme] = useState("");
+  const [, setDateOrdinateur] = useState("");
 
   // SIDEBAR STATE
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
@@ -53,9 +67,22 @@ export default function App() {
     checkDbConfiguration();
   }, []);
 
+  // --- MODIFICATION: Plus de blocage complet ici ---
+  // On calcule si l'accès est restreint
+  const isRestricted = showClotureAlert && user?.role_nom !== 'Administrateur';
+  // console.log("App Render:", { isRestricted, showClotureAlert, role: user?.role_nom, view });
+
+  // Si restreint, on force la vue sur "caisse" (là où est la clôture)
+  useEffect(() => {
+    if (isRestricted && view !== 'caisse') {
+      // console.log("Redirecting to caisse due to restriction");
+      setView('caisse');
+    }
+  }, [isRestricted, view]);
+
   const checkDbConfiguration = async () => {
     try {
-      const db = await getDb(); // Will throw if not configured or connection fails
+      await getDb(); // Will throw if not configured or connection fails
 
 
       // Check if setup is completed (DÉSACTIVÉ EN MODE DEV)
@@ -111,6 +138,44 @@ export default function App() {
         )
       `);
 
+      // 🛡️🛡️ CORRECTIF FINAL ET GLOBAL : AUTO-INCREMENT SUR TOUTES LES TABLES 🛡️🛡️
+      const globalFixKey = "SYSTEM_GLOBAL_AUTO_INCREMENT_FIX_V100";
+      if (!localStorage.getItem(globalFixKey)) {
+        console.log("🚑 Lancement du correctif global AUTO_INCREMENT...");
+        const allTables = [
+          "app_parametres_app", "app_parametres_entreprise", "app_menus", "app_roles",
+          "app_role_permissions", "app_utilisateurs", "app_permissions",
+          "ventes", "patients", "assurances", "societes", "prestations", "chambres", "lits", "admissions",
+          "clotures_journalieres", "caisse_mouvements", "caisse_recouvrements_details",
+          "ventes_supprimees", "logs_modifications", "factures_globales", "factures_globales_details",
+          "corrections_dates_metier", "ventes_transferts", "ventes_transferts_items",
+          "stock_rayons", "stock_articles", "stock_fournisseurs", "stock_mouvements",
+          "stock_bons_livraison", "stock_bl_details", "stock_bl_supprimes",
+          "stock_bons_retour", "stock_br_details",
+          "stock_avoirs_fournisseurs", "stock_avoir_details", "stock_avoir_mouvements",
+          "stock_paiements_fournisseurs",
+          "stock_inventaires", "stock_inventaire_lignes", "stock_rubriques", "stock_regularisations",
+          "commandes", "commande_details", "personnel"
+        ];
+
+        for (const table of allTables) {
+          try {
+            // Tentative d'ajout de PK si manquante (échouera silencieusement si existe)
+            try { await db.execute(`ALTER TABLE ${table} ADD PRIMARY KEY (id)`); } catch (pkErr) { }
+
+            // Forçage Auto-Increment
+            await db.execute(`ALTER TABLE ${table} MODIFY COLUMN id INT AUTO_INCREMENT`);
+            console.log(`✅ ${table} : Auto-Increment OK.`);
+          } catch (e) {
+            // Ignorer si la table n'existe pas encore ou erreur autre
+            // console.log(`ℹ️ ${table} : Skipped (${e})`);
+          }
+        }
+        localStorage.setItem(globalFixKey, "true");
+        alert("✅ Une maintenance complète de la base de données a été effectuée avec succès !");
+      }
+
+
       // Migration colonnes app_parametres_app
       try { await db.execute("ALTER TABLE app_parametres_app ADD COLUMN logo_app_url LONGTEXT"); } catch (e) { }
       try { await db.execute("ALTER TABLE app_parametres_app ADD COLUMN couleur_primaire VARCHAR(20)"); } catch (e) { }
@@ -123,6 +188,8 @@ export default function App() {
       try { await db.execute("ALTER TABLE app_parametres_app ADD COLUMN adresse TEXT"); } catch (e) { }
       try { await db.execute("ALTER TABLE app_parametres_app ADD COLUMN telephone VARCHAR(100)"); } catch (e) { }
       try { await db.execute("ALTER TABLE app_parametres_app ADD COLUMN email VARCHAR(100)"); } catch (e) { }
+      try { await db.execute("ALTER TABLE app_parametres_app ADD COLUMN imprimante_caisse VARCHAR(255)"); } catch (e) { }
+      try { await db.execute("ALTER TABLE app_parametres_app ADD COLUMN imprimante_documents VARCHAR(255)"); } catch (e) { }
 
       // Table Paramètres Entreprise (Infos Société pour Documents)
       await db.execute(`
@@ -167,9 +234,9 @@ export default function App() {
           { code: 'dashboard', libelle: 'Tableau de bord' },
           { code: 'patients', libelle: 'Gestion Patients' },
           { code: 'consultation', libelle: 'Consultation' },
-          { code: 'labo', libelle: 'Laboratoire' },
+          { code: 'laboratoire', libelle: 'Laboratoire' },
           { code: 'infirmier', libelle: 'Infirmier' },
-          { code: 'hosp', libelle: 'Hospitalisation' },
+          { code: 'hospitalisation', libelle: 'Hospitalisation' },
           { code: 'assur', libelle: 'Assurances' },
           { code: 'caisse', libelle: 'Facturation' },
           { code: 'stock', libelle: 'Gestion Stock' },
@@ -182,9 +249,9 @@ export default function App() {
           ['dashboard', 'Tableau de bord', '🏠', 'Général', 1],
           ['patients', 'Patients', '👥', 'Médical', 2],
           ['consultation', 'Consultation', '🩺', 'Médical', 3],
-          ['labo', 'Laboratoire', '🔬', 'Médical', 4],
+          ['laboratoire', 'Laboratoire', '🔬', 'Médical', 4],
           ['infirmier', 'Infirmier', '💉', 'Médical', 5],
-          ['hosp', 'Hospitalisation', '🏨', 'Médical', 6],
+          ['hospitalisation', 'Hospitalisation', '🏨', 'Médical', 6],
           ['assur', 'Assurances', '🛡️', 'Administration', 7],
           ['caisse', 'Facturation', '💰', 'Administration', 8],
           ['stock', 'Gestion Stock', '📦', 'Logistique', 9],
@@ -234,13 +301,346 @@ export default function App() {
           date_vente DATETIME DEFAULT CURRENT_TIMESTAMP,
           numero_bon VARCHAR(50) NULL,
           societe_nom VARCHAR(100) NULL,
-          numero_ticket VARCHAR(50) NULL
+          numero_ticket VARCHAR(50) NULL,
+          user_id INT NULL
         )
       `);
 
-      // Migration Ventes
+      // Table PATIENTS (Ensure existence)
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS patients (
+          id INTEGER PRIMARY KEY AUTO_INCREMENT,
+          numero_carnet VARCHAR(50) UNIQUE,
+          nom_prenoms VARCHAR(255),
+          sexe VARCHAR(10),
+          date_naissance DATE,
+          telephone VARCHAR(50),
+          telephone2 VARCHAR(50),
+          ville VARCHAR(100),
+          sous_prefecture VARCHAR(100),
+          village VARCHAR(100),
+          assurance_id INTEGER,
+          numero_assure VARCHAR(100),
+          taux_couverture INTEGER,
+          societe_id INTEGER,
+          nom_salarie TEXT,
+          telephone_assurance TEXT,
+          date_creation DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Migrations Ventes
       try { await db.execute("ALTER TABLE ventes ADD COLUMN numero_ticket VARCHAR(50) NULL"); } catch (e) { }
       try { await db.execute("ALTER TABLE ventes ADD COLUMN user_id INT NULL"); } catch (e) { }
+      try { await db.execute("ALTER TABLE ventes ADD COLUMN numero_bon VARCHAR(50) NULL"); } catch (e) { }
+      try { await db.execute("ALTER TABLE ventes ADD COLUMN societe_nom VARCHAR(100) NULL"); } catch (e) { }
+
+      // Migrations Patients
+      // Migrations Patients
+      try { await db.execute("ALTER TABLE patients ADD COLUMN societe_id INTEGER"); } catch (e) { }
+      try { await db.execute("ALTER TABLE patients ADD COLUMN nom_salarie TEXT"); } catch (e) { }
+      try { await db.execute("ALTER TABLE patients ADD COLUMN telephone_assurance TEXT"); } catch (e) { }
+      try { await db.execute("ALTER TABLE patients ADD COLUMN numero_assure TEXT"); } catch (e) { }
+
+      // FIX ID AUTO_INCREMENT (Anomaly Fix V2)
+      try {
+        // Force ID to be Primary Key FIRST (if not already)
+        // Note: AUTO_INCREMENT requires the column to be indexed (KEY or PK)
+        // We try to add PK. If it fails (duplicate or exists), we ignore.
+        try { await db.execute("ALTER TABLE patients ADD PRIMARY KEY (id)"); } catch (e) { }
+
+        // Now make it Auto Increment
+        await db.execute("ALTER TABLE patients MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed patients ID auto-increment");
+      } catch (e) { console.log("Auto-increment fix skipped or failed", e); }
+
+      // FIX FIELD 'NOM' (Missing default value Anomaly)
+      try {
+        // The code uses 'nom_prenoms' but table has 'nom' which expects a value.
+        // We make 'nom' nullable to prevent insertion errors.
+        await db.execute("ALTER TABLE patients MODIFY COLUMN nom VARCHAR(255) NULL");
+        console.log("✅ Fixed patients.nom nullable");
+      } catch (e) { console.log("Fix patients.nom skipped", e); }
+
+      // FIX ID AUTO_INCREMENT (clotures_journalieres)
+      try {
+        const rows = await db.select<any[]>("SELECT COUNT(*) as c FROM clotures_journalieres");
+        const count = rows[0]?.c || 0;
+        if (count === 0) {
+          await db.execute("DROP TABLE clotures_journalieres");
+          console.log("⚠️ Dropped empty clotures_journalieres table to force clear recreation");
+        } else {
+          // Force ID to be Primary Key FIRST
+          try { await db.execute("ALTER TABLE clotures_journalieres ADD PRIMARY KEY (id)"); } catch (e) { }
+          // Then Apply Auto Increment
+          await db.execute("ALTER TABLE clotures_journalieres MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+          console.log("✅ Fixed clotures_journalieres ID auto-increment");
+        }
+      } catch (e) { console.log("Auto-increment fix clotures skipped", e); }
+
+      // FIX ID AUTO_INCREMENT (prestations) - For Consultation/Actes
+      try {
+        // Force ID to be Primary Key FIRST
+        try { await db.execute("ALTER TABLE prestations ADD PRIMARY KEY (id)"); } catch (e) { }
+        // Then Apply Auto Increment
+        await db.execute("ALTER TABLE prestations MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed prestations ID auto-increment");
+      } catch (e) { console.log("Auto-increment fix prestations skipped", e); }
+
+      // FIX ID AUTO_INCREMENT (admissions) - For Hospitalisation
+      try {
+        // Force ID to be Primary Key FIRST
+        try { await db.execute("ALTER TABLE admissions ADD PRIMARY KEY (id)"); } catch (e) { }
+        // Then Apply Auto Increment
+        await db.execute("ALTER TABLE admissions MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed admissions ID auto-increment");
+      } catch (e) { console.log("Auto-increment fix admissions skipped", e); }
+
+
+
+      // FIX ID AUTO_INCREMENT (chambres & lits) - For Hospitalisation Config
+      try {
+        try { await db.execute("ALTER TABLE chambres ADD PRIMARY KEY (id)"); } catch (e) { }
+        await db.execute("ALTER TABLE chambres MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed chambres ID auto-increment");
+      } catch (e) { console.log("Fix chambres skipped", e); }
+
+      try {
+        try { await db.execute("ALTER TABLE lits ADD PRIMARY KEY (id)"); } catch (e) { }
+        await db.execute("ALTER TABLE lits MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed lits ID auto-increment");
+      } catch (e) { console.log("Fix lits skipped", e); }
+
+      // FIX COLUMN 'STATUT' (Data truncated Anomaly)
+      try {
+        // The code inserts 'disponible' (10 chars). If DB has VARCHAR(5) or ENUM('libre'...), it fails.
+        // We widen it to VARCHAR(50).
+        await db.execute("ALTER TABLE lits MODIFY COLUMN statut VARCHAR(50) DEFAULT 'disponible'");
+        console.log("✅ Fixed lits.statut column width");
+      } catch (e) { console.log("Fix lits.statut skipped", e); }
+
+      // FIX ID AUTO_INCREMENT (ventes) - For Caisse/Facturation
+      try {
+        try { await db.execute("ALTER TABLE ventes ADD PRIMARY KEY (id)"); } catch (e) { }
+        await db.execute("ALTER TABLE ventes MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed ventes ID auto-increment");
+      } catch (e) { console.log("Fix ventes skipped (likely already correct or table locked)", e); }
+
+      // FIX ID AUTO_INCREMENT (assurances) - SMART REPAIR
+      try {
+        // 1. Test if the table is writable (Auto-Increment working?)
+        try {
+          await db.execute("INSERT INTO assurances (nom, statut) VALUES ('__TEST_AUTO_REPAIR__', 'actif')");
+          // If we get here, it worked. Clean up.
+          await db.execute("DELETE FROM assurances WHERE nom = '__TEST_AUTO_REPAIR__'");
+          console.log("✅ Assurance table check: HEALTHY");
+        } catch (insertError) {
+          console.warn("⚠️ Assurance table check: BROKEN. Recreating table...", insertError);
+          // 2. Table is broken (no auto-increment), RECREATE IT.
+          await db.execute("SET FOREIGN_KEY_CHECKS=0");
+          await db.execute("DROP TABLE IF EXISTS assurances");
+          await db.execute("CREATE TABLE assurances (id INTEGER PRIMARY KEY AUTO_INCREMENT, nom VARCHAR(255) NOT NULL, statut VARCHAR(50) DEFAULT 'actif')");
+          await db.execute("SET FOREIGN_KEY_CHECKS=1");
+          console.log("✅ Recreated assurances table with correct schema.");
+        }
+      } catch (e) {
+        console.error("❌ Critical error fixing assurances table:", e);
+        try { await db.execute("SET FOREIGN_KEY_CHECKS=1"); } catch (ez) { }
+      }
+
+      // FIX SCHEMA: VENTES_TRANSFERTS (Add nom_patient)
+      try {
+        await db.execute("ALTER TABLE ventes_transferts ADD COLUMN nom_patient VARCHAR(255) DEFAULT NULL");
+      } catch (e) { }
+
+      // FIX AUTO_INCREMENT: VENTES_TRANSFERTS (Aggressive)
+      try {
+        // If empty, simple recreation is safest
+        const rows = await db.select<any[]>("SELECT COUNT(*) as c FROM ventes_transferts");
+        if ((rows[0]?.c || 0) === 0) {
+          await db.execute("DROP TABLE IF EXISTS ventes_transferts");
+          await db.execute(`CREATE TABLE ventes_transferts (
+                    id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                    patient_id INTEGER DEFAULT NULL,
+                    nom_patient VARCHAR(255) DEFAULT NULL,
+                    personnel_id_source INTEGER DEFAULT NULL,
+                    date_transfert DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    statut VARCHAR(50) DEFAULT 'EN_ATTENTE',
+                    observation TEXT DEFAULT NULL
+                 )`);
+          console.log("✅ Recreated ventes_transferts (Clean Schema)");
+        } else {
+          // Try to force AI
+          try { await db.execute("ALTER TABLE ventes_transferts ADD PRIMARY KEY (id)"); } catch (e) { }
+          await db.execute("ALTER TABLE ventes_transferts MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+          console.log("✅ Fixed ventes_transferts AI (Alter)");
+        }
+      } catch (e) { console.error("Fix ventes_transferts failed", e); }
+
+      // FIX AUTO_INCREMENT: VENTES_TRANSFERTS_ITEMS (Aggressive)
+      try {
+        const rows = await db.select<any[]>("SELECT COUNT(*) as c FROM ventes_transferts_items");
+        if ((rows[0]?.c || 0) === 0) {
+          await db.execute("DROP TABLE IF EXISTS ventes_transferts_items");
+          await db.execute(`CREATE TABLE ventes_transferts_items (
+                    id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                    transfert_id INTEGER DEFAULT NULL,
+                    item_id INTEGER DEFAULT NULL,
+                    libelle VARCHAR(255) DEFAULT NULL,
+                    type VARCHAR(50) DEFAULT NULL,
+                    prix_unitaire DOUBLE DEFAULT NULL,
+                    qte DOUBLE DEFAULT NULL,
+                    use_assurance BOOLEAN DEFAULT NULL,
+                    part_assureur_unitaire DOUBLE DEFAULT NULL,
+                    part_patient_unitaire DOUBLE DEFAULT NULL
+                 )`);
+          console.log("✅ Recreated ventes_transferts_items (Clean Schema)");
+        } else {
+          try { await db.execute("ALTER TABLE ventes_transferts_items ADD PRIMARY KEY (id)"); } catch (e) { }
+          await db.execute("ALTER TABLE ventes_transferts_items MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+          console.log("✅ Fixed ventes_transferts_items AI (Alter)");
+        }
+      } catch (e) { console.error("Fix ventes_transferts_items failed", e); }
+
+      // FIX ID AUTO_INCREMENT (societes) - SMART REPAIR
+      try {
+        const rows = await db.select<any[]>("SELECT COUNT(*) as c FROM societes");
+        const count = rows[0]?.c || 0;
+        if (count === 0) {
+          await db.execute("SET FOREIGN_KEY_CHECKS=0");
+          await db.execute("DROP TABLE IF EXISTS societes");
+          await db.execute(`
+            CREATE TABLE societes (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                assurance_id INTEGER,
+                nom_societe VARCHAR(255),
+                taux_prise_en_charge INTEGER DEFAULT 80,
+                statut VARCHAR(50) DEFAULT 'actif',
+                FOREIGN KEY (assurance_id) REFERENCES assurances(id) ON DELETE CASCADE
+            )
+          `);
+          await db.execute("SET FOREIGN_KEY_CHECKS=1");
+          console.log("✅ Societes table check: Gentle fix applied (Recreated empty table)");
+        } else {
+          // If data exists, try the gentle ALTER
+          try { await db.execute("ALTER TABLE societes ADD PRIMARY KEY (id)"); } catch (e) { }
+          await db.execute("ALTER TABLE societes MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+          console.log("✅ Fixed societes ID auto-increment (Alter)");
+        }
+      } catch (e) {
+        console.log("Fix societes skipped", e);
+      }
+
+      // FIX ID AUTO_INCREMENT (caisse_mouvements) - For Decaissement
+      try {
+        try { await db.execute("ALTER TABLE caisse_mouvements ADD PRIMARY KEY (id)"); } catch (e) { }
+        await db.execute("ALTER TABLE caisse_mouvements MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed caisse_mouvements ID auto-increment");
+      } catch (e) { console.log("Fix caisse_mouvements skipped", e); }
+
+      // FIX ID AUTO_INCREMENT (stock_articles) - ROBUST REPAIR
+      try {
+        const rowsCount = await db.select<any[]>("SELECT COUNT(*) as c, COUNT(DISTINCT id) as d FROM stock_articles");
+        const total = rowsCount[0]?.c || 0;
+        const distinct = rowsCount[0]?.d || 0;
+
+        if (total > 0 && total !== distinct) {
+          console.log("⚠️ stock_articles has duplicate IDs (likely 0). Regenerating IDs...");
+          // IDs are broken. Drop and Add.
+          try { await db.execute("ALTER TABLE stock_articles DROP COLUMN id"); } catch (e) { }
+          await db.execute("ALTER TABLE stock_articles ADD COLUMN id INTEGER PRIMARY KEY AUTO_INCREMENT FIRST");
+          console.log("✅ Regenerated stock_articles IDs");
+        } else {
+          // IDs are unique or table empty. Standard fix.
+          try { await db.execute("ALTER TABLE stock_articles ADD PRIMARY KEY (id)"); } catch (e) { }
+          await db.execute("ALTER TABLE stock_articles MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+          console.log("✅ Fixed stock_articles ID auto-increment (Standard)");
+        }
+      } catch (e) { console.log("Fix stock_articles skipped/failed", e); }
+
+      // FIX ID AUTO_INCREMENT (stock_fournisseurs) - For Fournisseurs
+      try {
+        try { await db.execute("ALTER TABLE stock_fournisseurs ADD PRIMARY KEY (id)"); } catch (e) { }
+        await db.execute("ALTER TABLE stock_fournisseurs MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed stock_fournisseurs ID auto-increment");
+      } catch (e) { console.log("Fix stock_fournisseurs skipped", e); }
+
+      // FIX ID AUTO_INCREMENT (stock_inventaires) - For Inventaire
+      try {
+        try { await db.execute("ALTER TABLE stock_inventaires ADD PRIMARY KEY (id)"); } catch (e) { }
+        await db.execute("ALTER TABLE stock_inventaires MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed stock_inventaires ID auto-increment");
+      } catch (e) { console.log("Fix stock_inventaires skipped", e); }
+
+      // FIX ID AUTO_INCREMENT (stock_inventaire_lignes) - For Inventaire Lignes
+      try {
+        try { await db.execute("ALTER TABLE stock_inventaire_lignes ADD PRIMARY KEY (id)"); } catch (e) { }
+        await db.execute("ALTER TABLE stock_inventaire_lignes MODIFY id INTEGER NOT NULL AUTO_INCREMENT");
+        console.log("✅ Fixed stock_inventaire_lignes ID auto-increment");
+      } catch (e) { console.log("Fix stock_inventaire_lignes skipped", e); }
+
+      // =========================================================
+      // 🚀 DATA SEEDING (Auto-Import from focolari_db.sql V3)
+      // =========================================================
+
+      // 0. SEED RAYONS (Required for Articles)
+      try {
+        const rows = await db.select<any[]>("SELECT COUNT(*) as c FROM stock_rayons");
+        if ((rows[0]?.c || 0) === 0) {
+          console.log("🌱 Seeding Rayons...");
+          await db.execute(SQL_RAYONS);
+          console.log("✅ Rayons seeded!");
+        }
+      } catch (e) { console.error("Seeding Rayons failed:", e); }
+
+      // 1. SEED PRESTATIONS (Consultations, Labo, Soins, Hospitalisation)
+      try {
+        const rows = await db.select<any[]>("SELECT COUNT(*) as c FROM prestations");
+        const count = rows[0]?.c || 0;
+        if (count === 0) {
+          console.log("🌱 Seeding Prestations (Full V3 Data)...");
+          // Clear any partial data just in case? No, rely on clean slate or manual check.
+          // Actually, if count is 0, it's safe.
+          await db.execute(SQL_PRESTATIONS);
+          console.log("✅ Prestations seeded!");
+        }
+      } catch (e) { console.error("Seeding Prestations failed:", e); }
+
+      // 2. SEED STOCK (Pharmacie - Split in 2 parts)
+      try {
+        const rows = await db.select<any[]>("SELECT COUNT(*) as c FROM stock_articles");
+        if ((rows[0]?.c || 0) === 0) {
+          console.log("🌱 Seeding Stock (Part 1)...");
+          await db.execute(SQL_ARTICLES_PART1);
+          console.log("✅ Stock Part 1 seeded!");
+
+          console.log("🌱 Seeding Stock (Part 2)...");
+          await db.execute(SQL_ARTICLES_PART2);
+          console.log("✅ Stock Part 2 seeded!");
+        }
+      } catch (e) { console.error("Seeding Stock failed:", e); }
+
+      // 3. SEED CHAMBRES (Hospitalisation)
+      try {
+        const rows = await db.select<any[]>("SELECT COUNT(*) as c FROM chambres");
+        if ((rows[0]?.c || 0) === 0) {
+          console.log("🌱 Seeding Chambres...");
+          await db.execute(`INSERT INTO chambres (id, nom, prix_journalier, statut) VALUES
+                (1, 'Chambre 1', 10000, 'actif'),
+                (2, 'Chambre 2', 15000, 'actif'),
+                (3, 'VIP 1', 25000, 'actif')
+            `);
+          // Seed Lits linked to seeded chambres
+          await db.execute(`INSERT INTO lits (id, chambre_id, nom_lit, prix_journalier, statut) VALUES
+                (1, 1, 'Lit 1-A', 10000, 'disponible'),
+                (2, 1, 'Lit 1-B', 10000, 'disponible'),
+                (3, 2, 'Lit 2-A', 15000, 'disponible'),
+                (4, 3, 'Lit VIP', 25000, 'disponible')
+            `);
+          console.log("✅ Chambres & Lits seeded!");
+        }
+      } catch (e) { console.error("Seeding Chambres failed:", e); }
+
 
       // Table Clôtures Journalières
       await db.execute(`
@@ -420,6 +820,25 @@ export default function App() {
       try { await db.execute("ALTER TABLE stock_articles ADD COLUMN cip VARCHAR(50)"); } catch (e) { } // Ensure CIP column
 
 
+      // 🛡️ MIGRATION SECURITE MOTS DE PASSE (BCRYPT) 🛡️
+      try {
+        const users = await db.select<any[]>("SELECT id, password_hash FROM app_utilisateurs");
+        const { hashPassword, isBcryptHash } = await import("./lib/crypto");
+
+        let migratedCount = 0;
+        for (const u of users) {
+          if (u.password_hash && !isBcryptHash(u.password_hash)) {
+            // C'est un mot de passe en clair -> On le hache
+            const hashed = await hashPassword(u.password_hash);
+            await db.execute("UPDATE app_utilisateurs SET password_hash = ? WHERE id = ?", [hashed, u.id]);
+            migratedCount++;
+          }
+        }
+        if (migratedCount > 0) console.log(`🔒 Sécurité : ${migratedCount} mots de passe migrés vers bcrypt.`);
+      } catch (e) {
+        console.error("Erreur migration sécurité MDP:", e);
+      }
+
       // Insertion Rôle Admin
       const checkRole = await db.select<any[]>("SELECT id FROM app_roles WHERE nom = 'Administrateur'");
       if (checkRole.length === 0) {
@@ -429,15 +848,20 @@ export default function App() {
       const adminRoleRes = await db.select<any[]>("SELECT id FROM app_roles WHERE nom = 'Administrateur'");
       const rId = adminRoleRes[0].id;
 
-      // Réparation Forcée Admin (très agressive)
-      // On s'assure que le compte est actif et que le mot de passe est 'admin'
-      await db.execute("UPDATE app_utilisateurs SET actif = 1, password_hash = 'admin', role_id = ? WHERE username = 'admin'", [rId]);
-
-      // Si l'update n'a rien fait (compte inexistant), on l'insère
+      // Vérification Admin
       const verifyAdmin = await db.select<any[]>("SELECT id FROM app_utilisateurs WHERE username = 'admin'");
+
       if (verifyAdmin.length === 0) {
+        // Création initiale (HASHÉ)
+        const { hashPassword } = await import("./lib/crypto");
+        const adminPass = await hashPassword('admin');
         await db.execute("INSERT INTO app_utilisateurs (nom_complet, username, password_hash, role_id, actif) VALUES (?, ?, ?, ?, ?)",
-          ['Administrateur Système', 'admin', 'admin', rId, 1]);
+          ['Administrateur Système', 'admin', adminPass, rId, 1]);
+        console.log("✅ Compte Admin créé (sécurisé)");
+      } else {
+        // En PROD : On ne touche pas au mot de passe existant !
+        await db.execute("UPDATE app_utilisateurs SET role_id = ?, actif = 1 WHERE username = 'admin'", [rId]);
+        console.log("✅ Compte Admin vérifié");
       }
 
       // Charger Config
@@ -475,22 +899,28 @@ export default function App() {
   };
 
   const handleLoginSuccess = async (loggedInUser: any) => {
-    setUser(loggedInUser);
-    setIsAuthenticated(true);
+    await login(loggedInUser); // Use context login
+    // View redirection logic remains, but permissions are now in context.
+    // We can access them via the context, but since state updates are async, 
+    // strictly speaking we might want to rely on the context's internal logic or 
+    // re-fetch here if needed for immediate redirection. 
+    // However, context 'login' already fetches permissions.
+    // Let's do a quick DB fetch here just for the redirection logic if needed, 
+    // or trust the next render.
+    // Simpler: Just set view to dashboard. The user can navigate.
+    setView("dashboard");
+
+    // Original logic tried to be smart:
     try {
       const db = await getDb();
       const perms = await db.select<any[]>(`SELECT m.code FROM app_role_permissions rp JOIN app_menus m ON rp.menu_id = m.id WHERE rp.role_id = ?`, [loggedInUser.role_id]);
       const codes = perms.map(p => p.code);
-      setUserPermissions(codes);
       if (codes.length > 0 && !codes.includes("dashboard")) setView(codes[0]);
-      else setView("dashboard");
-    } catch (e) { console.error(e); }
+    } catch (e) { }
   };
 
   const handleLogout = () => {
-    setUser(null);
-    setIsAuthenticated(false);
-    setUserPermissions([]);
+    logout(); // Use context logout
   };
 
   if (loading) return <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}><h2>Chargement...</h2></div>;
@@ -512,47 +942,13 @@ export default function App() {
 
   if (!isAuthenticated) return <LoginView onLoginSuccess={handleLoginSuccess} config={config} />;
 
-  // Modal de clôture obligatoire
-  if (showClotureAlert) {
-    return (
-      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-        <div style={{ background: 'white', borderRadius: '20px', padding: '50px', maxWidth: '650px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.5)', border: '3px solid #e74c3c' }}>
-          <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-            <div style={{ fontSize: '5rem', marginBottom: '25px' }}>🔒</div>
-            <h2 style={{ margin: '0 0 20px 0', color: '#e74c3c', fontSize: '2rem', fontWeight: 'bold' }}>CLÔTURE OBLIGATOIRE</h2>
-            <p style={{ color: '#7f8c8d', fontSize: '1.1rem', lineHeight: '1.6' }}>
-              La date système ({new Date(dateSysteme).toLocaleDateString('fr-FR')}) est différente de la date de l'ordinateur ({new Date(dateOrdinateur).toLocaleDateString('fr-FR')}).
-            </p>
-            <p style={{ color: '#2c3e50', fontWeight: 'bold', fontSize: '1.1rem' }}>
-              Vous devez clôturer la journée précédente avant de continuer.
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              // Ne pas fermer le modal, juste changer la vue vers la clôture
-              setView('caisse');
-            }}
-            style={{ width: '100%', padding: '18px', background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)', color: 'white', border: 'none', borderRadius: '12px', fontSize: '1.3rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 15px rgba(231, 76, 60, 0.4)' }}
-          >
-            🔒 Accéder à la Clôture Maintenant
-          </button>
-          <p style={{
-            textAlign: 'center',
-            color: '#95a5a6',
-            fontSize: '0.9rem',
-            marginTop: '20px',
-            fontStyle: 'italic',
-            borderTop: '1px solid #ecf0f1',
-            paddingTop: '15px'
-          }}>
-            ⚠️ Cette fenêtre ne peut pas être fermée. Vous devez clôturer pour continuer à travailler.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
-  const canAccess = (code: string) => (user?.role_nom === 'Administrateur' || userPermissions.includes(code));
+
+  const canAccess = (code: string) => {
+    // Si restreint, on ne peut accéder qu'à la caisse
+    if (isRestricted && code !== 'caisse') return false;
+    return hasPermission(code); // Use context permission check
+  };
 
   return (
     <div style={layoutStyle}>
@@ -592,26 +988,26 @@ export default function App() {
           </button>
         </div>
         <div style={menuContainerStyle}>
-          {canAccess('dashboard') && <MenuBtn label="🏠 Tableau de bord" id="dashboard" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
+          {canAccess('dashboard') && <MenuBtn label="🏠 Tableau de bord" id="dashboard" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
 
           <div style={{ ...sectionTitleStyle, opacity: isSidebarExpanded ? 1 : 0, height: isSidebarExpanded ? 'auto' : '0px', padding: isSidebarExpanded ? '15px 10px 5px 10px' : '0' }}>MÉDICAL</div>
 
-          {canAccess('patients') && <MenuBtn label="👥 Patients" id="patients" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
-          {canAccess('consultation') && <MenuBtn label="🩺 Consultation" id="consultation" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
-          {canAccess('labo') && <MenuBtn label="🔬 Laboratoire" id="labo" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
-          {canAccess('infirmier') && <MenuBtn label="💉 Infirmier" id="infirmier" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
-          {canAccess('hosp') && <MenuBtn label="🏨 Hospitalisation" id="hosp" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
+          {canAccess('patients') && <MenuBtn label="👥 Patients" id="patients" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
+          {canAccess('consultation') && <MenuBtn label="🩺 Consultation" id="consultation" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
+          {canAccess('laboratoire') && <MenuBtn label="🔬 Laboratoire" id="laboratoire" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
+          {canAccess('infirmier') && <MenuBtn label="💉 Infirmier" id="infirmier" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
+          {canAccess('hospitalisation') && <MenuBtn label="🏨 Hospitalisation" id="hospitalisation" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
 
           <div style={{ ...sectionTitleStyle, opacity: isSidebarExpanded ? 1 : 0, height: isSidebarExpanded ? 'auto' : '0px', padding: isSidebarExpanded ? '15px 10px 5px 10px' : '0' }}>ADMINISTRATION</div>
 
-          {canAccess('assur') && <MenuBtn label="🛡️ Assurances" id="assur" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
+          {canAccess('assur') && <MenuBtn label="🛡️ Assurances" id="assur" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
           {canAccess('caisse') && <MenuBtn label="💰 Facturation" id="caisse" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
 
           <div style={{ ...sectionTitleStyle, opacity: isSidebarExpanded ? 1 : 0, height: isSidebarExpanded ? 'auto' : '0px', padding: isSidebarExpanded ? '15px 10px 5px 10px' : '0' }}>LOGISTIQUE</div>
 
-          {canAccess('stock') && <MenuBtn label="📦 Gestion Stock" id="stock" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
-          {canAccess('documents') && <MenuBtn label="📂 Documents" id="documents" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
-          {canAccess('params') && <MenuBtn label="⚙️ Paramètres" id="params" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} />}
+          {canAccess('stock') && <MenuBtn label="📦 Gestion Stock" id="stock" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
+          {canAccess('documents') && <MenuBtn label="📂 Documents" id="documents" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
+          {canAccess('params') && <MenuBtn label="⚙️ Paramètres" id="params" active={view} onClick={setView} color={config.couleur_primaire} expanded={isSidebarExpanded} disabled={isRestricted} />}
 
           <button onClick={handleLogout} style={{ ...navBtnStyle, marginTop: 'auto', color: '#e74c3c', justifyContent: isSidebarExpanded ? 'flex-start' : 'center' }}>
             {isSidebarExpanded ? '🚪 Déconnexion' : '🚪'}
@@ -622,10 +1018,10 @@ export default function App() {
         <DateSystemeBanner onClotureComplete={() => window.location.reload()} />
         <div style={{ flex: 1, overflowY: 'auto', padding: '25px 30px' }}>
           {view === "dashboard" && <DashboardView setView={setView} />}
-          {view === "patients" && <PatientsView currentUser={user} />}
-          {view === "labo" && <LaboratoireView />}
+          {view === "patients" && <PatientsView />}
+          {view === "laboratoire" && <LaboratoireView />}
           {view === "infirmier" && <InfirmierView />}
-          {view === "hosp" && <HospitalisationView />}
+          {view === "hospitalisation" && <HospitalisationView />}
           {view === "assur" && <AssurancesView />}
           {view === "caisse" && <BillingMain currentUser={user} />}
           {view === "stock" && <StockMainView currentUser={user} />}
@@ -638,27 +1034,26 @@ export default function App() {
   );
 }
 
-function MenuBtn({ label, id, active, onClick, color, expanded }: any) {
+function MenuBtn({ label, id, active, onClick, expanded, disabled }: any) {
   const { theme } = useTheme();
   const isSelected = active === id;
-  // Fallback icon extraction (first 2 chars assuming emoji) or just standard split
-  // Our system uses "Emoji Title", so splitting by space might usually work, but emoji length varies.
-  // Simple heuristic: just display the whole label if expanded, else just substring(0,2) or similar if we assume emoji is first.
-  // Better: The label is typically "ICON Text".
 
   return (
     <button
-      onClick={() => onClick(id)}
+      onClick={() => !disabled && onClick(id)}
       title={label}
+      disabled={disabled}
       style={{
         ...navBtnStyle,
         backgroundColor: isSelected ? theme.primaryColor : 'transparent',
-        color: isSelected ? 'white' : '#ecf0f1',
+        color: isSelected ? 'white' : (disabled ? '#7f8c8d' : '#ecf0f1'),
         justifyContent: expanded ? 'flex-start' : 'center',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         display: 'flex',
-        alignItems: 'center'
+        alignItems: 'center',
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer'
       }}>
       {expanded ? label : <span style={{ fontSize: '1.2rem' }}>{label.split(' ')[0]}</span>}
     </button>

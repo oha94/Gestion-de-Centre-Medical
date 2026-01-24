@@ -54,49 +54,69 @@ export default function CaisseTransfertView() {
     }, []);
 
     const chargerDonnees = async () => {
+        let allItems: CatalogItem[] = [];
+        const db = await getDb();
+
+        // 1. Patients
         try {
-            const db = await getDb();
-            // Patients
+            console.log("CaisseTransfert: Loading Patients...");
             const resP = await db.select<any[]>(`
                 SELECT p.id, p.nom_prenoms, p.numero_carnet, p.assurance_id, p.telephone,
                        p.societe_id, p.numero_assure, p.nom_salarie, p.telephone_assurance,
-                       CAST(p.taux_couverture AS DOUBLE) as taux_couverture,
+                       CAST(p.taux_couverture AS CHAR) as taux_couverture,
                        a.nom as nom_assurance
                 FROM patients p LEFT JOIN assurances a ON p.assurance_id = a.id
             `);
             setPatients(resP);
+            console.log("CaisseTransfert: Patients loaded", resP.length);
+        } catch (e) { console.error("Error loading patients:", e); }
 
-            // Personnel
-            try {
-                const resPers = await db.select<any[]>(`
-                    SELECT id, nom_prenoms, fonction FROM personnel
-                    UNION
-                    SELECT u.id, u.nom_complet as nom_prenoms, r.nom as fonction FROM app_utilisateurs u
-                    LEFT JOIN app_roles r ON u.role_id = r.id
-                    ORDER BY nom_prenoms
-                `);
-                setPersonnels(resPers);
-            } catch (e) { }
+        // 2. Personnel
+        try {
+            const resPers = await db.select<any[]>(`
+                SELECT id, nom_prenoms, fonction FROM personnel
+                UNION
+                SELECT u.id, u.nom_complet COLLATE utf8mb4_unicode_ci as nom_prenoms, r.nom COLLATE utf8mb4_unicode_ci as fonction FROM app_utilisateurs u
+                LEFT JOIN app_roles r ON u.role_id = r.id
+                ORDER BY nom_prenoms
+            `);
+            setPersonnels(resPers);
+        } catch (e) { console.warn("Error loading personnel (non-critical):", e); }
 
-            // Items (Acts & Medicaments)
-            let allItems: CatalogItem[] = [];
-            const resPrest = await db.select<any[]>("SELECT id, libelle, categorie, CAST(prix_standard AS DOUBLE) as prix_standard FROM prestations");
+        // 3. Prestations (Items)
+        try {
+            console.log("CaisseTransfert: Loading Prestations...");
+            const resPrest = await db.select<any[]>("SELECT id, libelle, categorie, CAST(prix_standard AS CHAR) as prix_standard FROM prestations");
             resPrest.forEach(p => {
                 let cat: any = 'AUTRE';
                 let color = '#95a5a6';
                 let icon = '🩺';
-                if (p.categorie === 'LABO') { cat = 'EXAMENS'; color = '#8e44ad'; icon = '🔬'; }
-                else if (p.categorie === 'SOINS') { cat = 'ACTES MÉDICAUX'; color = '#27ae60'; icon = '💉'; }
-                else if (p.categorie === 'CONSULTATION') { cat = 'CONSULTATIONS'; color = '#2980b9'; icon = '👨‍⚕️'; }
-                allItems.push({ id: p.id, libelle: p.libelle, prix: p.prix_standard, type: 'ACTE', categorie: cat, color: color, icon: icon });
-            });
 
-            const resPharma = await db.select<any[]>("SELECT id, designation, CAST(prix_vente AS DOUBLE) as prix_vente, CAST(quantite_stock AS DOUBLE) as quantite_stock FROM stock_articles WHERE quantite_stock > 0");
-            resPharma.forEach(p => {
-                allItems.push({ id: p.id, libelle: p.designation, prix: p.prix_vente, type: 'MEDICAMENT', categorie: 'PRODUITS', stock: p.quantite_stock, color: '#e67e22', icon: '💊' });
+                const catUpper = p.categorie?.toUpperCase() || '';
+
+                if (catUpper.includes('LABO')) { cat = 'EXAMENS'; color = '#8e44ad'; icon = '🔬'; }
+                else if (catUpper === 'SOINS') { cat = 'ACTES MÉDICAUX'; color = '#27ae60'; icon = '💉'; }
+                else if (catUpper === 'CONSULTATION') { cat = 'CONSULTATIONS'; color = '#2980b9'; icon = '👨‍⚕️'; }
+
+                allItems.push({ id: p.id, libelle: p.libelle, prix: Number(p.prix_standard), type: 'ACTE', categorie: cat, color: color, icon: icon });
             });
-            setItems(allItems);
-        } catch (e) { console.error(e); }
+            console.log("CaisseTransfert: Prestations loaded", resPrest.length);
+        } catch (e) { console.error("Error loading prestations:", e); }
+
+        // 4. Pharma (Items)
+        try {
+            console.log("CaisseTransfert: Loading Pharma...");
+            // Removed WHERE quantite_stock > 0 to match Caisse.tsx and ensure visibility even if stock issues
+            const resPharma = await db.select<any[]>("SELECT id, designation, CAST(prix_vente AS CHAR) as prix_vente, CAST(quantite_stock AS CHAR) as quantite_stock FROM stock_articles");
+            resPharma.forEach(p => {
+                allItems.push({ id: p.id, libelle: p.designation, prix: Number(p.prix_vente), type: 'MEDICAMENT', categorie: 'PRODUITS', stock: Number(p.quantite_stock), color: '#e67e22', icon: '💊' });
+            });
+            console.log("CaisseTransfert: Pharma loaded", resPharma.length);
+        } catch (e) { console.error("Error loading pharma:", e); }
+
+        // Finalize Items
+        setItems(allItems);
+        console.log("CaisseTransfert: Total items set", allItems.length);
     };
 
     // SELECTION & AUTO-FILL
@@ -120,7 +140,7 @@ export default function CaisseTransfertView() {
         try {
             const db = await getDb();
             const res = await db.select<any[]>(`
-                SELECT a.id, a.date_entree, a.nb_jours, l.nom_lit, CAST(l.prix_journalier AS DOUBLE) as prix_journalier, c.nom as nom_chambre
+                SELECT a.id, a.date_entree, a.nb_jours, l.nom_lit, CAST(l.prix_journalier AS CHAR) as prix_journalier, c.nom as nom_chambre
                 FROM admissions a JOIN lits l ON a.lit_id = l.id JOIN chambres c ON l.chambre_id = c.id
                 WHERE a.patient_id = ? AND a.statut = 'en_cours'
             `, [patientId]);
@@ -160,11 +180,20 @@ export default function CaisseTransfertView() {
     };
 
     const transfererVente = async () => {
-        if (panier.length === 0 || !(patientSelectionne || personnelSelectionne)) return;
+        // Logic: If patient selected, use ID. If not, use searchQuery as manual name.
+        const nomManuel = (!patientSelectionne && !personnelSelectionne && selectionType === 'PATIENT' && searchQuery.trim().length > 1) ? searchQuery.trim() : null;
+
+        if (panier.length === 0 || !(patientSelectionne || personnelSelectionne || nomManuel)) {
+            alert("Veuillez sélectionner un patient ou saisir un nom valide pour le transfert.");
+            return;
+        }
+
         try {
             const db = await getDb();
-            const res = await db.execute("INSERT INTO ventes_transferts (patient_id, observation, statut) VALUES (?, ?, 'EN_ATTENTE')",
-                [patientSelectionne?.id || null, observation]);
+            // Store name if manual, otherwise ID handle it.
+            // If patient is selected, we could also store name for backup, but ID is enough.
+            const res = await db.execute("INSERT INTO ventes_transferts (patient_id, nom_patient, observation, statut) VALUES (?, ?, ?, 'EN_ATTENTE')",
+                [patientSelectionne?.id || null, nomManuel, observation]);
             const transferId = res.lastInsertId;
 
             for (const item of panier) {
@@ -178,6 +207,7 @@ export default function CaisseTransfertView() {
             setPanier([]);
             setSearchQuery("");
             setObservation("");
+            setPatientSelectionne(null); // Reset selection
             setShowCartDrawer(false);
         } catch (e) { console.error(e); alert("Erreur transfert."); }
     };
@@ -187,19 +217,112 @@ export default function CaisseTransfertView() {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f4f7f6', overflow: 'hidden', position: 'relative' }}>
-            <div style={{ padding: '15px 25px', background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd' }}>
-                <h2 style={{ margin: 0, color: '#2c3e50' }}>📋 Caisse de Transfert (Saisie des Ventes)</h2>
-                <button onClick={() => setShowCartDrawer(true)} style={{ padding: '12px 25px', background: '#34495e', color: 'white', border: 'none', borderRadius: '30px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    🛒 PANIER ({panier.length}) - {totalNet.toLocaleString()} F
-                </button>
+            {/* HEADER TOOLBAR: CAISSE TRANSFERT */}
+            <div style={{ background: 'white', padding: '12px 20px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', zIndex: 11, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+
+                {/* LINE 1: SELECTION INPUTS & ACTIONS (CSS GRID to Stop Overlap) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'min-content 1fr min-content', gap: '20px', alignItems: 'center' }}>
+
+                    {/* LEFT: TITLE & TOGGLES */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: '1.1rem', marginRight: '10px' }}>📋 Transfert</div>
+                        <div style={{ display: 'flex', background: '#f1f2f6', borderRadius: '8px', padding: '4px' }}>
+                            <button onClick={() => setSelectionType('PATIENT')} style={{ padding: '8px 15px', border: 'none', borderRadius: '6px', background: selectionType === 'PATIENT' ? '#3498db' : 'transparent', color: selectionType === 'PATIENT' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', transition: 'all 0.2s' }}>👤 Patient</button>
+                            <button onClick={() => setSelectionType('PERSONNEL')} style={{ padding: '8px 15px', border: 'none', borderRadius: '6px', background: selectionType === 'PERSONNEL' ? '#e67e22' : 'transparent', color: selectionType === 'PERSONNEL' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', transition: 'all 0.2s' }}>👔 Personnel</button>
+                        </div>
+                    </div>
+
+                    {/* CENTER: SEARCH BAR (MAIN FOCUS) */}
+                    <div style={{ position: 'relative', width: '100%', maxWidth: '600px', justifySelf: 'center' }}>
+                        <input
+                            placeholder={selectionType === 'PATIENT' ? "Rechercher Patient / Nom..." : "Rechercher Personnel..."}
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            style={{
+                                width: '100%', padding: '12px 20px', borderRadius: '30px', border: '2px solid #e0e0e0',
+                                fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s',
+                                background: (patientSelectionne || personnelSelectionne || (searchQuery.length > 2 && !patientSelectionne)) ? '#e8f8f5' : '#f9f9f9',
+                                borderColor: (patientSelectionne || personnelSelectionne) ? '#2ecc71' : '#e0e0e0'
+                            }}
+                        />
+                        {(patientSelectionne || personnelSelectionne) && <span style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', fontSize: '1.2rem' }}>✅</span>}
+                    </div>
+
+                    {/* RIGHT: GLOBAL ACTIONS */}
+                    <div style={{ display: 'flex', gap: '15px', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => setShowCartDrawer(true)} style={{ padding: '10px 20px', background: '#34495e', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 4px 10px rgba(44, 62, 80, 0.3)' }}>
+                            <span>🛒 Panier ({panier.length})</span>
+                            <span style={{ background: '#e74c3c', padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>{totalNet.toLocaleString()} F</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* LINE 2: INFO BANNER (If Selected or Manual Name) */}
+                {(patientSelectionne || personnelSelectionne || (selectionType === 'PATIENT' && searchQuery.length > 2 && !patientSelectionne && !personnelSelectionne)) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '30px', padding: '10px 15px', background: '#f8f9fa', borderRadius: '8px', borderLeft: `5px solid ${patientSelectionne ? '#3498db' : (personnelSelectionne ? '#e67e22' : '#95a5a6')}` }}>
+                        <div>
+                            <span style={{ color: '#7f8c8d', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                                {patientSelectionne ? 'Patient Identifié' : (personnelSelectionne ? 'Personnel Identifié' : 'Nom Manuel (Transfert Libre)')}
+                            </span>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#2c3e50' }}>
+                                {patientSelectionne?.nom_prenoms || personnelSelectionne?.nom_prenoms || searchQuery}
+                            </div>
+                        </div>
+                        {patientSelectionne && (
+                            <>
+                                <div style={{ borderLeft: '1px solid #ddd', paddingLeft: '30px' }}>
+                                    <span style={{ color: '#7f8c8d', fontSize: '0.8rem' }}>N° CARNET</span>
+                                    <div style={{ fontWeight: 'bold' }}>{patientSelectionne.numero_carnet || 'N/A'}</div>
+                                </div>
+                                {patientSelectionne.nom_assurance && (
+                                    <div style={{ borderLeft: '1px solid #ddd', paddingLeft: '30px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div>
+                                            <span style={{ color: '#7f8c8d', fontSize: '0.8rem' }}>ASSURANCE</span>
+                                            <div style={{ fontWeight: 'bold', color: '#27ae60' }}>{patientSelectionne.nom_assurance}</div>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                        {!patientSelectionne && !personnelSelectionne && (
+                            <div style={{ borderLeft: '1px solid #ddd', paddingLeft: '30px', fontStyle: 'italic', color: '#7f8c8d' }}>
+                                Ce nom sera transmis à la caisse
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px', gap: '15px', overflow: 'hidden' }}>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    {['TOUT', 'PRODUITS', 'EXAMENS', 'ACTES MÉDICAUX', 'CONSULTATIONS', 'HOSPITALISATIONS'].map(cat => (
-                        <button key={cat} onClick={() => setSelectedCategory(cat)} style={{ padding: '10px 18px', borderRadius: '20px', border: 'none', background: selectedCategory === cat ? '#3498db' : 'white', color: selectedCategory === cat ? 'white' : '#7f8c8d', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>{cat}</button>
-                    ))}
-                    <input placeholder="🔍 Chercher..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ flex: 1, border: 'none', borderRadius: '20px', padding: '0 20px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }} />
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingBottom: '5px' }}>
+
+                    {/* SEARCH INPUT (LEFT FIXED) */}
+                    <div style={{ display: 'flex', alignItems: 'center', background: 'white', border: '1px solid #ddd', borderRadius: '6px', padding: '0 10px', width: '250px' }}>
+                        <span style={{ fontSize: '1rem' }}>🔍</span>
+                        <input
+                            placeholder="Chercher article..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            style={{ border: 'none', padding: '10px', fontSize: '0.9rem', width: '100%', outline: 'none' }}
+                        />
+                    </div>
+
+                    <div style={{ width: '1px', height: '30px', background: '#ddd', margin: '0 10px' }}></div>
+
+                    {/* CATEGORIES (RIGHT FLEX SCROLL) */}
+                    <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', flex: 1 }}>
+                        {['TOUT', 'PRODUITS', 'EXAMENS', 'ACTES MÉDICAUX', 'CONSULTATIONS', 'HOSPITALISATIONS'].map(cat => (
+                            <button key={cat} onClick={() => setSelectedCategory(cat)}
+                                style={{
+                                    padding: '8px 15px', borderRadius: '6px', border: 'none',
+                                    background: selectedCategory === cat ? '#3498db' : 'white',
+                                    color: selectedCategory === cat ? 'white' : '#7f8c8d',
+                                    fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', fontSize: '0.85rem'
+                                }}>
+                                {cat}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px', alignContent: 'start' }}>

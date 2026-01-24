@@ -15,22 +15,29 @@ export default function InfirmierView() {
   const chargerActes = async () => {
     const db = await getDb();
     // On filtre uniquement les prestations de catégorie 'SOINS'
-    const res = await db.select<any[]>("SELECT * FROM prestations WHERE categorie = 'SOINS' ORDER BY libelle ASC");
-    setActes(res);
+    try {
+      const res = await db.select<any[]>("SELECT id, libelle, CAST(prix_standard AS CHAR) as prix_standard FROM prestations WHERE categorie = 'SOINS' ORDER BY libelle ASC");
+      setActes(res.map(r => ({ ...r, prix_standard: Number(r.prix_standard) })));
+    } catch (e) { console.error(e); }
   };
 
   useEffect(() => { chargerActes(); }, []);
 
   const ajouterActe = async () => {
     if (!nom || !prix) return alert("Veuillez remplir le nom et le prix");
-    const db = await getDb();
-    await db.execute(
-      "INSERT INTO prestations (libelle, prix_standard, categorie) VALUES (?, ?, 'SOINS')",
-      [nom, prix]
-    );
-    setNom(""); setPrix("");
-    chargerActes();
-    alert("Acte infirmier ajouté avec succès");
+    try {
+      const db = await getDb();
+      await db.execute(
+        "INSERT INTO prestations (libelle, prix_standard, categorie) VALUES (?, ?, 'SOINS')",
+        [nom, prix]
+      );
+      setNom(""); setPrix("");
+      chargerActes();
+      alert("Acte infirmier ajouté avec succès");
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'enregistrement : " + JSON.stringify(e));
+    }
   };
 
   const supprimerActe = async (id: number) => {

@@ -5,30 +5,44 @@ export default function LaboratoireView() {
   const [examens, setExamens] = useState<any[]>([]);
   const [nom, setNom] = useState("");
   const [prix, setPrix] = useState<number | string>("");
+  const [categorie, setCategorie] = useState("LABO"); // NEW
   const [search, setSearch] = useState("");
 
   // États pour la modification
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editNom, setEditNom] = useState("");
   const [editPrix, setEditPrix] = useState<number | string>("");
+  const [editCat, setEditCat] = useState(""); // NEW
 
   const chargerExamens = async () => {
     const db = await getDb();
-    // On filtre uniquement les prestations de catégorie 'LABO'
-    const res = await db.select<any[]>("SELECT * FROM prestations WHERE categorie = 'LABO' ORDER BY libelle ASC");
-    setExamens(res);
+    try {
+      // On charge tout ce qui ressemble à du LABO ou qui contient "Labo"
+      // Note: On exclut potentiellement CONSULTATION/SOINS si on veut être strict, 
+      // mais ici on veut surtout voir ce qu'on gère.
+      // On va charger TOUT ce qui n'est pas Consultation, Soins, Hospitalisation
+      // Ou plus simple: tout ce qui contient 'LABO' ou 'Labo' dans la catégorie
+      const res = await db.select<any[]>(`
+        SELECT id, libelle, categorie, CAST(prix_standard AS CHAR) as prix_standard 
+        FROM prestations 
+        WHERE categorie LIKE '%LABO%' OR categorie LIKE '%Labo%'
+        ORDER BY categorie, libelle ASC
+      `);
+      setExamens(res.map(r => ({ ...r, prix_standard: Number(r.prix_standard) })));
+    } catch (e) { console.error(e); }
   };
 
   useEffect(() => { chargerExamens(); }, []);
 
   const ajouterExamen = async () => {
     if (!nom || !prix) return alert("Veuillez remplir le nom et le prix");
+    const catFinal = categorie || "LABO";
     const db = await getDb();
     await db.execute(
-      "INSERT INTO prestations (libelle, prix_standard, categorie) VALUES (?, ?, 'LABO')",
-      [nom, prix]
+      "INSERT INTO prestations (libelle, prix_standard, categorie) VALUES (?, ?, ?)",
+      [nom, prix, catFinal]
     );
-    setNom(""); setPrix("");
+    setNom(""); setPrix(""); setCategorie("LABO");
     chargerExamens();
     alert("Examen ajouté au catalogue");
   };
@@ -45,20 +59,22 @@ export default function LaboratoireView() {
     setEditingId(ex.id);
     setEditNom(ex.libelle);
     setEditPrix(ex.prix_standard);
+    setEditCat(ex.categorie);
   };
 
   const sauvegarderModif = async () => {
     const db = await getDb();
     await db.execute(
-      "UPDATE prestations SET libelle = ?, prix_standard = ? WHERE id = ?",
-      [editNom, editPrix, editingId]
+      "UPDATE prestations SET libelle = ?, prix_standard = ?, categorie = ? WHERE id = ?",
+      [editNom, editPrix, editCat, editingId]
     );
     setEditingId(null);
     chargerExamens();
   };
 
   const filtered = examens.filter(ex =>
-    ex.libelle.toLowerCase().includes(search.toLowerCase())
+    ex.libelle.toLowerCase().includes(search.toLowerCase()) ||
+    (ex.categorie && ex.categorie.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -74,6 +90,23 @@ export default function LaboratoireView() {
       <div style={cardStyle}>
         <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0 }}>➕ Ajouter un nouvel examen</h3>
         <div style={{ display: 'flex', gap: '15px', marginTop: '15px', alignItems: 'flex-end' }}>
+          <div style={{ flex: 1 }}>
+            <label style={labelS}>Catégorie</label>
+            <input
+              placeholder="Ex: Labo 1, Labo 2..."
+              value={categorie}
+              onChange={e => setCategorie(e.target.value)}
+              style={inputStyle}
+              list="cat-suggestions"
+            />
+            <datalist id="cat-suggestions">
+              <option value="LABO" />
+              <option value="Labo 1" />
+              <option value="Labo 2" />
+              <option value="Bactériologie" />
+              <option value="Parasitologie" />
+            </datalist>
+          </div>
           <div style={{ flex: 2 }}>
             <label style={labelS}>Désignation de l'examen</label>
             <input
@@ -93,7 +126,7 @@ export default function LaboratoireView() {
               style={inputStyle}
             />
           </div>
-          <button onClick={ajouterExamen} style={btnPlus}>Enregistrer l'examen</button>
+          <button onClick={ajouterExamen} style={btnPlus}>Enregistrer</button>
         </div>
       </div>
 
@@ -102,7 +135,7 @@ export default function LaboratoireView() {
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', alignItems: 'center' }}>
           <h3>Liste des analyses proposées</h3>
           <input
-            placeholder="🔍 Rechercher un examen..."
+            placeholder="🔍 Rechercher (Nom ou Catégorie)..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ padding: '10px', width: '300px', borderRadius: '8px', border: '1px solid #3498db' }}
@@ -112,6 +145,7 @@ export default function LaboratoireView() {
         <table style={tableStyle}>
           <thead>
             <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+              <th style={tdStyle}>Catégorie</th>
               <th style={tdStyle}>Désignation</th>
               <th style={tdStyle}>Prix Standard</th>
               <th style={{ ...tdStyle, textAlign: 'right' }}>Actions</th>
@@ -122,6 +156,7 @@ export default function LaboratoireView() {
               <tr key={ex.id} style={{ borderBottom: '1px solid #eee' }}>
                 {editingId === ex.id ? (
                   <>
+                    <td style={tdStyle}><input value={editCat} onChange={e => setEditCat(e.target.value)} style={inputStyle} /></td>
                     <td style={tdStyle}><input value={editNom} onChange={e => setEditNom(e.target.value)} style={inputStyle} /></td>
                     <td style={tdStyle}><input type="number" value={editPrix} onChange={e => setEditPrix(e.target.value)} style={inputStyle} /></td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
@@ -131,6 +166,7 @@ export default function LaboratoireView() {
                   </>
                 ) : (
                   <>
+                    <td style={tdStyle}><span style={{ background: '#eef2f7', color: '#555', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>{ex.categorie}</span></td>
                     <td style={tdStyle}><strong>{ex.libelle}</strong></td>
                     <td style={tdStyle}>{ex.prix_standard.toLocaleString()} FCFA</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
@@ -143,8 +179,8 @@ export default function LaboratoireView() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={3} style={{ textAlign: 'center', padding: '30px', color: '#999' }}>
-                  Aucun examen trouvé dans le catalogue.
+                <td colSpan={4} style={{ textAlign: 'center', padding: '30px', color: '#999' }}>
+                  Aucun examen trouvé.
                 </td>
               </tr>
             )}

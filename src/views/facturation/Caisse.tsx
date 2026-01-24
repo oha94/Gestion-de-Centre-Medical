@@ -1,4 +1,5 @@
 import { useState, useEffect, CSSProperties } from "react";
+import { generateTicketHTML, TicketData } from "../../utils/ticketGenerator";
 import { getDb } from "../../lib/db";
 
 const pulseStyle = `
@@ -45,7 +46,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
     const [admissions, setAdmissions] = useState<any[]>([]);
     const [entreprise, setEntreprise] = useState<any>(null);
     const [allSocietes, setAllSocietes] = useState<any[]>([]);
-    const [assurances, setAssurances] = useState<any[]>([]);
+
     const [incomingTransfers, setIncomingTransfers] = useState<any[]>([]);
     const [showTransferPanel, setShowTransferPanel] = useState(false);
 
@@ -146,7 +147,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         try {
             const db = await getDb();
             const res = await db.select<any[]>(`
-                SELECT t.*, p.nom_prenoms as patient_nom 
+                SELECT t.*, COALESCE(p.nom_prenoms, t.nom_patient) as patient_nom 
                 FROM ventes_transferts t 
                 LEFT JOIN patients p ON t.patient_id = p.id
                 WHERE t.statut = 'EN_ATTENTE'
@@ -160,11 +161,13 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         try {
             const db = await getDb();
 
+            // Migrations express removed for stability
+
             // Patients
             const resP = await db.select<any[]>(`
                 SELECT p.id, p.nom_prenoms, p.numero_carnet, p.assurance_id, p.telephone,
                        p.societe_id, p.numero_assure, p.nom_salarie, p.telephone_assurance,
-                       CAST(p.taux_couverture AS DOUBLE) as taux_couverture,
+                       p.taux_couverture,
                        a.nom as nom_assurance
                 FROM patients p LEFT JOIN assurances a ON p.assurance_id = a.id
             `);
@@ -191,22 +194,26 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             // Items
             let allItems: CatalogItem[] = [];
             const resPrest = await db.select<any[]>(`
-                SELECT id, libelle, categorie, CAST(prix_standard AS DOUBLE) as prix_standard 
+                SELECT id, libelle, categorie, CAST(prix_standard AS CHAR) as prix_standard 
                 FROM prestations
             `);
             resPrest.forEach(p => {
                 let cat: any = 'AUTRE';
                 let color = '#95a5a6';
                 let icon = '🩺';
-                if (p.categorie === 'LABO') { cat = 'EXAMENS'; color = '#8e44ad'; icon = '🔬'; }
-                else if (p.categorie === 'SOINS') { cat = 'ACTES MÉDICAUX'; color = '#27ae60'; icon = '💉'; }
-                else if (p.categorie === 'CONSULTATION') { cat = 'CONSULTATIONS'; color = '#2980b9'; icon = '👨‍⚕️'; }
-                allItems.push({ id: p.id, libelle: p.libelle, prix: p.prix_standard, type: 'ACTE', categorie: cat, color: color, icon: icon });
+
+                const catUpper = p.categorie?.toUpperCase() || '';
+
+                if (catUpper.includes('LABO')) { cat = 'EXAMENS'; color = '#8e44ad'; icon = '🔬'; }
+                else if (catUpper === 'SOINS') { cat = 'ACTES MÉDICAUX'; color = '#27ae60'; icon = '💉'; }
+                else if (catUpper === 'CONSULTATION') { cat = 'CONSULTATIONS'; color = '#2980b9'; icon = '👨‍⚕️'; }
+
+                allItems.push({ id: p.id, libelle: p.libelle, prix: Number(p.prix_standard), type: 'ACTE', categorie: cat, color: color, icon: icon });
             });
 
             const resPharma = await db.select<any[]>(`
-                SELECT id, designation, CAST(prix_vente AS DOUBLE) as prix_vente, 
-                       CAST(quantite_stock AS DOUBLE) as quantite_stock,
+                SELECT id, designation, CAST(prix_vente AS CHAR) as prix_vente, 
+                       CAST(quantite_stock AS CHAR) as quantite_stock,
                        article_parent_id, coefficient_conversion
                 FROM stock_articles
                 ORDER BY designation
@@ -215,16 +222,18 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                 allItems.push({
                     id: p.id,
                     libelle: p.designation,
-                    prix: p.prix_vente,
+                    prix: Number(p.prix_vente),
                     type: 'MEDICAMENT',
                     categorie: 'PRODUITS',
-                    stock: p.quantite_stock,
-                    color: p.quantite_stock > 0 ? '#e67e22' : '#e74c3c',
+                    stock: Number(p.quantite_stock),
+                    color: Number(p.quantite_stock) > 0 ? '#e67e22' : '#e74c3c',
                     icon: '💊',
                     article_parent_id: p.article_parent_id,
                     coefficient_conversion: p.coefficient_conversion
                 });
             });
+            // Removed duplicate loop
+
             setItems(allItems);
 
             // Entreprise info
@@ -238,20 +247,6 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             // Assurances
             const resAssur = await db.select<any[]>("SELECT * FROM assurances");
             setAssurances(resAssur);
-
-            // Migrations express (if manual command failed)
-            try {
-                await db.execute("ALTER TABLE patients ADD COLUMN societe_id INTEGER");
-            } catch (e) { }
-            try {
-                await db.execute("ALTER TABLE patients ADD COLUMN nom_salarie TEXT");
-            } catch (e) { }
-            try {
-                await db.execute("ALTER TABLE patients ADD COLUMN telephone_assurance TEXT");
-            } catch (e) { }
-            try {
-                await db.execute("ALTER TABLE ventes ADD COLUMN numero_bon TEXT");
-            } catch (e) { }
             try {
                 await db.execute("ALTER TABLE ventes ADD COLUMN societe_nom TEXT");
             } catch (e) { }
@@ -301,11 +296,11 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             const db = await getDb();
             const res = await db.select<any[]>(`
             SELECT a.id, a.date_entree, a.nb_jours, l.nom_lit, 
-                   CAST(l.prix_journalier AS DOUBLE) as prix_journalier, c.nom as nom_chambre
+                   CAST(l.prix_journalier AS CHAR) as prix_journalier, c.nom as nom_chambre
             FROM admissions a JOIN lits l ON a.lit_id = l.id JOIN chambres c ON l.chambre_id = c.id
             WHERE a.patient_id = ? AND a.statut = 'en_cours'
           `, [patientId]);
-            setAdmissions(res);
+            setAdmissions(res.map(r => ({ ...r, prix_journalier: parseFloat(r.prix_journalier || "0") })));
         } catch (e) { console.error(e); }
     };
 
@@ -430,6 +425,25 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         }));
     };
 
+    const updatePrixItem = (uniqueId: number, newPrix: number) => {
+        setPanier(prev => prev.map(item => {
+            if (item.uniqueId === uniqueId) {
+                // Recalculer part assureur si assurance active
+                const partAssur = item.useAssurance
+                    ? Math.round(newPrix * (patientSelectionne?.taux_couverture || 0) / 100)
+                    : 0;
+
+                return {
+                    ...item,
+                    prixUnitaire: newPrix,
+                    partAssureurUnitaire: partAssur,
+                    partPatientUnitaire: newPrix - partAssur
+                };
+            }
+            return item;
+        }));
+    };
+
     // CALCULS
     const totalBrut = panier.reduce((acc, i) => acc + (i.prixUnitaire * i.qte), 0);
     const totalPartAssureur = panier.reduce((acc, i) => acc + (i.partAssureurUnitaire * i.qte), 0);
@@ -511,7 +525,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             // Imprimer le ticket automatiquement
             imprimerTicketCaisse(ticketNum, finalMode);
 
-            alert("✅ Vente enregistrée !");
+            // alert("✅ Vente enregistrée !"); // Removed for immediate print
             setPanier([]);
             setShowPaymentDrawer(false);
             setShowCartDrawer(false);
@@ -526,95 +540,104 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         } catch (e) { console.error(e); alert("Erreur."); }
     };
 
-    const imprimerTicketCaisse = (ticketNum: string, modeP: string) => {
-        const dateVente = new Date();
-        const content = `
-            <div style="font-family: 'Courier New', monospace; width: 300px; margin: 0 auto; padding: 10px; font-size: 12px;">
-                <div style="text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px;">
-                    <div style="font-weight: bold; font-size: 16px;">CENTRE MÉDICAL</div>
-                    <div style="font-size: 11px;">TICKET DE CAISSE</div>
-                    <div style="font-size: 10px; margin-top: 5px;">N° ${ticketNum}</div>
-                    <div style="font-size: 10px;">${dateVente.toLocaleString('fr-FR')}</div>
-                </div>
-                
-                <div style="margin-bottom: 10px; font-size: 11px;">
-                    <div><strong>Patient:</strong> ${patientSelectionne?.nom_prenoms || personnelSelectionne?.nom_prenoms || 'Client Passage'}</div>
-                    ${patientSelectionne ? `<div><strong>N° Carnet:</strong> ${patientSelectionne.numero_carnet}</div>` : ''}
-                    ${currentUser ? `<div><strong>Opérateur:</strong> ${currentUser.nom_complet}</div>` : ''}
-                </div>
-                
-                <div style="border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 8px 0; margin: 10px 0;">
-                    <table style="width: 100%; font-size: 11px;">
-                        <thead>
-                            <tr>
-                                <th style="text-align: left;">Article</th>
-                                <th style="text-align: center;">Qte</th>
-                                <th style="text-align: right;">Prix</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${panier.map(item => `
-                                <tr>
-                                    <td style="text-align: left;">${item.libelle}</td>
-                                    <td style="text-align: center;">${item.qte}</td>
-                                    <td style="text-align: right;">${(item.partPatientUnitaire * item.qte).toLocaleString()} F</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div style="margin: 10px 0; font-size: 12px;">
-                    <div style="display: flex; justify-content: space-between; margin: 3px 0;">
-                        <span>Total Brut:</span>
-                        <strong>${totalBrut.toLocaleString()} F</strong>
-                    </div>
-                    ${totalPartAssureur > 0 ? `
-                        <div style="display: flex; justify-content: space-between; margin: 3px 0; color: #3498db;">
-                            <span>Part Assurance:</span>
-                            <strong>-${totalPartAssureur.toLocaleString()} F</strong>
-                        </div>
-                    ` : ''}
-                    <div style="display: flex; justify-content: space-between; margin: 8px 0; font-size: 14px; border-top: 2px solid #000; padding-top: 5px;">
-                        <span><strong>NET À PAYER:</strong></span>
-                        <strong>${totalNetPatient.toLocaleString()} F</strong>
-                    </div>
-                </div>
-                
-                <div style="margin: 10px 0; font-size: 11px; border-top: 1px dashed #000; padding-top: 8px;">
-                    <div><strong>Mode de paiement:</strong> ${modeP}</div>
-                    <div><strong>Versé:</strong> ${(montantVerse1 + montantVerse2).toLocaleString()} F</div>
-                    ${(montantVerse1 + montantVerse2) > totalNetPatient ? `<div><strong>Monnaie:</strong> ${((montantVerse1 + montantVerse2) - totalNetPatient).toLocaleString()} F</div>` : ''}
-                </div>
-                
-                <div style="text-align: center; margin-top: 15px; font-size: 10px; border-top: 2px dashed #000; padding-top: 10px;">
-                    <div>Merci de votre visite !</div>
-                    <div style="margin-top: 5px;">Conservez ce ticket</div>
-                </div>
-            </div>
-        `;
+    // --- TICKET PREVIEW & PRINT ---
 
-        const printWindow = window.open('', '_blank', 'width=400,height=600');
-        if (!printWindow) return;
 
-        printWindow.document.write(`
-            <html>
-                <head>
-                    <title>Ticket ${ticketNum}</title>
-                    <style>
-                        @media print {
-                            body { margin: 0; padding: 0; }
-                        }
-                    </style>
-                </head>
-                <body onload="window.print(); setTimeout(() => window.close(), 500);">
-                    ${content}
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
+    const prepareTicketData = (ticketNum: string, modeP: string, itemsOverride?: CartItem[], totalOverride?: number): TicketData => {
+        const itemsToUse = itemsOverride || panier;
+        const totalToUse = totalOverride || totalNetPatient;
+
+        // Calculate Payment details
+        const totalVerse = (montantVerse1 || 0) + (montantVerse2 || 0);
+        let rendu = 0;
+        if (totalVerse > totalToUse) rendu = totalVerse - totalToUse;
+
+        return {
+            entreprise: {
+                nom_entreprise: entreprise?.nom_entreprise || 'CENTRE MEDICAL',
+                adresse: entreprise?.adresse || '',
+                telephone: entreprise?.telephone || ''
+            },
+            ticketNum: ticketNum,
+            dateVente: new Date(),
+            patient: patientSelectionne ? {
+                nom_prenoms: patientSelectionne.nom_prenoms,
+                numero_carnet: patientSelectionne.numero_carnet,
+                telephone: patientSelectionne.telephone,
+                nom_assurance: patientSelectionne.nom_assurance,
+                taux_couverture: patientSelectionne.taux_couverture
+            } : undefined,
+            personnel: personnelSelectionne ? {
+                nom_prenoms: personnelSelectionne.nom_prenoms
+            } : undefined,
+            caissier: currentUser?.nom_complet || 'Système',
+            items: itemsToUse.map(i => ({
+                libelle: i.libelle,
+                categorie: i.categorie,
+                qte: i.qte,
+                partPatientUnitaire: i.partPatientUnitaire
+            })),
+            totalBrut: itemsToUse.reduce((acc, i) => acc + (i.prixUnitaire * i.qte), 0),
+            totalPartAssureur: itemsToUse.reduce((acc, i) => acc + (i.partAssureurUnitaire * i.qte), 0),
+            totalNetPatient: totalToUse,
+            paiement: {
+                montantVerse: totalVerse,
+                rendu: rendu,
+                mode: modeP
+            },
+            insForm: insForm.societeId ? {
+                societeId: insForm.societeId,
+                matricule: insForm.matricule,
+                numeroBon: insForm.numeroBon,
+                societeNom: allSocietes.find(s => s.id.toString() === insForm.societeId)?.nom_societe
+            } : undefined
+        };
     };
 
+    const handlePreviewTicket = () => {
+        // Generate TEMP ticket number for preview
+        const datePart = (softwareDate || new Date().toISOString().split('T')[0]).replace(/-/g, '').slice(2);
+        const ticketNum = `PREVIEW-${datePart}`;
+
+        let finalMode = paymentStrategy === 'CREDIT_TOTAL' ? 'CRÉDIT' : modePaiement1;
+        if (modePaiement1 === 'CASH') finalMode = 'ESPÈCE';
+        if (modePaiement2 !== 'AUCUN' && montantVerse2 > 0) {
+            const mode2Label = modePaiement2 === 'CASH' ? 'ESPÈCE' : modePaiement2;
+            finalMode = `${finalMode} + ${mode2Label}`;
+        }
+
+        const data = prepareTicketData(ticketNum, finalMode);
+        const html = generateTicketHTML(data);
+        setPreviewTicketData(html);
+    };
+
+    const imprimerTicketCaisse = (ticketNum: string, modeP: string) => {
+        const data = prepareTicketData(ticketNum, modeP);
+        const html = generateTicketHTML(data);
+
+        // Create hidden iframe for printing
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'absolute';
+        iframe.style.width = '0px';
+        iframe.style.height = '0px';
+        iframe.style.border = 'none';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+            doc.open();
+            doc.write(html);
+            doc.write(`<script>window.onload = function() { setTimeout(() => { window.print(); }, 500); };</script>`);
+            doc.close();
+
+            // Cleanup after 60s
+            setTimeout(() => {
+                if (document.body.contains(iframe)) {
+                    document.body.removeChild(iframe);
+                }
+            }, 60000);
+        }
+    };
     const recupererTransfert = async (transferId: number) => {
         try {
             const db = await getDb();
@@ -658,106 +681,118 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#ecf0f1', overflow: 'hidden', position: 'relative' }}>
 
-            {/* HEADER TOOLBAR & PATIENT SEARCH */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '8px 15px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', zIndex: 11, gap: '20px' }}>
+            {/* HEADER TOOLBAR: PATIENT CONTEXT & ACTIONS */}
+            <div style={{ background: 'white', padding: '12px 20px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', zIndex: 11, display: 'flex', flexDirection: 'column', gap: '10px' }}>
 
-                {/* 1. SEARCH CATALOG */}
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '250px' }}>
-                    <span style={{ fontSize: '1rem' }}>🔍</span>
-                    <input
-                        placeholder="Chercher article..."
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                        style={{ border: 'none', background: '#f8f9fa', padding: '8px 12px', borderRadius: '6px', fontSize: '0.9rem', width: '100%', outline: 'none' }}
-                    />
-                </div>
+                {/* LINE 1: SELECTION INPUTS & ACTIONS (CSS GRID to Stop Overlap) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'min-content 1fr min-content', gap: '20px', alignItems: 'center' }}>
 
-                {/* 2. PATIENT SELECTION (CENTERED - NEW) */}
-                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ display: 'flex', background: '#ecf0f1', borderRadius: '6px', padding: '3px' }}>
-                        <button onClick={() => setSelectionType('PATIENT')} style={{ padding: '5px 10px', border: 'none', borderRadius: '4px', background: selectionType === 'PATIENT' ? '#3498db' : 'transparent', color: selectionType === 'PATIENT' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>👤 Patient</button>
-                        <button onClick={() => setSelectionType('PERSONNEL')} style={{ padding: '5px 10px', border: 'none', borderRadius: '4px', background: selectionType === 'PERSONNEL' ? '#e67e22' : 'transparent', color: selectionType === 'PERSONNEL' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>👔 Personnel</button>
+                    {/* LEFT: SELECTION TYPE TOGGLE */}
+                    <div style={{ display: 'flex', background: '#f1f2f6', borderRadius: '8px', padding: '4px', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => setSelectionType('PATIENT')} style={{ padding: '8px 15px', border: 'none', borderRadius: '6px', background: selectionType === 'PATIENT' ? '#3498db' : 'transparent', color: selectionType === 'PATIENT' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', transition: 'all 0.2s' }}>👤 Patient</button>
+                        <button onClick={() => setSelectionType('PERSONNEL')} style={{ padding: '8px 15px', border: 'none', borderRadius: '6px', background: selectionType === 'PERSONNEL' ? '#e67e22' : 'transparent', color: selectionType === 'PERSONNEL' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', transition: 'all 0.2s' }}>👔 Personnel</button>
                     </div>
 
-                    <div style={{ position: 'relative', width: '300px' }}>
+                    {/* CENTER: SEARCH BAR (MAIN FOCUS) */}
+                    <div style={{ position: 'relative', width: '100%', maxWidth: '600px', justifySelf: 'center' }}>
                         <input
-                            placeholder={selectionType === 'PATIENT' ? "N° Carnet / Nom Patient..." : "Nom du Personnel..."}
+                            placeholder={selectionType === 'PATIENT' ? "Rechercher Patient (Nom, N° Carnet)..." : "Rechercher Personnel..."}
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
                             style={{
-                                width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #ddd',
-                                fontSize: '0.9rem', fontWeight: 'bold', textAlign: 'center',
-                                background: selectionValidee ? (selectionType === 'PATIENT' ? '#eafaf1' : '#fef5e7') : 'white'
+                                width: '100%', padding: '12px 20px', borderRadius: '30px', border: '2px solid #e0e0e0',
+                                fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s',
+                                background: selectionValidee ? '#e8f8f5' : '#f9f9f9',
+                                borderColor: selectionValidee ? '#2ecc71' : '#e0e0e0'
                             }}
                         />
-                        {selectionValidee && (
-                            <div style={{ position: 'absolute', right: '5px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.8rem', color: '#27ae60' }}>
-                                ✅
+                        {selectionValidee && <span style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', fontSize: '1.2rem' }}>✅</span>}
+                    </div>
+
+                    {/* RIGHT: GLOBAL ACTIONS */}
+                    <div style={{ display: 'flex', gap: '10px', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => setShowTransferPanel(true)} style={{ padding: '10px 18px', background: incomingTransfers.length > 0 ? '#e67e22' : 'white', color: incomingTransfers.length > 0 ? 'white' : '#7f8c8d', border: incomingTransfers.length > 0 ? 'none' : '1px solid #ddd', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
+                            🔔 Transferts {incomingTransfers.length > 0 && <span style={{ background: 'white', color: '#e67e22', padding: '2px 6px', borderRadius: '10px', fontSize: '0.8rem' }}>{incomingTransfers.length}</span>}
+                        </button>
+                        <button onClick={() => setShowCartDrawer(true)} style={{ padding: '10px 20px', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 4px 10px rgba(44, 62, 80, 0.3)' }}>
+                            <span>🛒 Panier ({panier.length})</span>
+                            <span style={{ background: '#e74c3c', padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>{totalNetPatient.toLocaleString()} F</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* LINE 2: INFO BANNER (If Selected) */}
+                {(patientSelectionne || personnelSelectionne) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '30px', padding: '10px 15px', background: '#f8f9fa', borderRadius: '8px', borderLeft: `5px solid ${patientSelectionne ? '#3498db' : '#e67e22'} ` }}>
+                        <div>
+                            <span style={{ color: '#7f8c8d', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px' }}>{patientSelectionne ? 'Patient Identifié' : 'Personnel Identifié'}</span>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#2c3e50' }}>{patientSelectionne?.nom_prenoms || personnelSelectionne?.nom_prenoms}</div>
+                        </div>
+                        {patientSelectionne && (
+                            <>
+                                <div style={{ borderLeft: '1px solid #ddd', paddingLeft: '30px' }}>
+                                    <span style={{ color: '#7f8c8d', fontSize: '0.8rem' }}>N° CARNET</span>
+                                    <div style={{ fontWeight: 'bold' }}>{patientSelectionne.numero_carnet || 'N/A'}</div>
+                                </div>
+                                {patientSelectionne.nom_assurance && (
+                                    <div style={{ borderLeft: '1px solid #ddd', paddingLeft: '30px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div>
+                                            <span style={{ color: '#7f8c8d', fontSize: '0.8rem' }}>ASSURANCE / TAUX</span>
+                                            <div style={{ fontWeight: 'bold', color: '#27ae60' }}>{patientSelectionne.nom_assurance}</div>
+                                        </div>
+                                        <div style={{ background: '#27ae60', color: 'white', padding: '5px 10px', borderRadius: '6px', fontWeight: 'bold' }}>{patientSelectionne.taux_couverture}%</div>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                        {personnelSelectionne && (
+                            <div style={{ borderLeft: '1px solid #ddd', paddingLeft: '30px' }}>
+                                <span style={{ color: '#7f8c8d', fontSize: '0.8rem' }}>FONCTION</span>
+                                <div style={{ fontWeight: 'bold' }}>{personnelSelectionne.fonction}</div>
                             </div>
                         )}
                     </div>
-
-                    {patientSelectionne && (
-                        <div style={{ borderLeft: '2px solid #ddd', paddingLeft: '10px', fontSize: '0.8rem', lineHeight: '1.1' }}>
-                            <div style={{ fontWeight: 'bold' }}>{patientSelectionne.nom_prenoms}</div>
-                            {patientSelectionne.nom_assurance && <div style={{ color: '#27ae60' }}>🛡️ {patientSelectionne.nom_assurance} ({patientSelectionne.taux_couverture}%)</div>}
-                        </div>
-                    )}
-                    {personnelSelectionne && (
-                        <div style={{ borderLeft: '2px solid #ddd', paddingLeft: '10px', fontSize: '0.8rem', lineHeight: '1.1' }}>
-                            <div style={{ fontWeight: 'bold', color: '#e67e22' }}>{personnelSelectionne.nom_prenoms}</div>
-                            <div style={{ color: '#7f8c8d' }}>{personnelSelectionne.fonction}</div>
-                        </div>
-                    )}
-                </div>
-
-                {/* 3. ACTIONS RIGHT */}
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                        onClick={() => setShowTransferPanel(true)}
-                        style={{
-                            padding: '8px 15px', background: incomingTransfers.length > 0 ? '#e67e22' : '#ecf0f1', color: incomingTransfers.length > 0 ? 'white' : '#7f8c8d', border: 'none', borderRadius: '6px',
-                            fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem',
-                            animation: incomingTransfers.length > 0 ? 'pulse 2s infinite' : 'none'
-                        }}
-                    >
-                        🔔 Transferts ({incomingTransfers.length})
-                    </button>
-                    <button
-                        onClick={() => setShowCartDrawer(true)}
-                        style={{
-                            padding: '8px 15px', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '6px',
-                            fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem'
-                        }}
-                    >
-                        <span>🛒 Panier ({panier.length})</span>
-                        <span style={{ background: '#e74c3c', borderRadius: '4px', padding: '2px 6px', fontSize: '0.8rem' }}>{totalNetPatient.toLocaleString()} F</span>
-                    </button>
-                </div>
+                )}
             </div>
 
             {/* MAIN BODY: CATALOG */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px', gap: '15px', overflow: 'hidden' }}>
-                <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '5px' }}>
-                    {[
-                        { id: 'TOUT', label: '🏠 Tout' },
-                        { id: 'PRODUITS', label: '💊 Phar.' },
-                        { id: 'EXAMENS', label: '🔬 Exam.' },
-                        { id: 'ACTES MÉDICAUX', label: '💉 Actes' },
-                        { id: 'CONSULTATIONS', label: '👨‍⚕️ Consult.' },
-                        { id: 'HOSPITALISATIONS', label: '🏥 Hospit.' }
-                    ].map(cat => (
-                        <button key={cat.id} onClick={() => setSelectedCategory(cat.id)}
-                            style={{
-                                padding: '8px 15px', borderRadius: '6px', border: 'none',
-                                background: selectedCategory === cat.id ? '#3498db' : 'white',
-                                color: selectedCategory === cat.id ? 'white' : '#7f8c8d',
-                                fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', fontSize: '0.85rem'
-                            }}
-                        >
-                            {cat.label}
-                        </button>
-                    ))}
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingBottom: '5px' }}>
+
+                    {/* NEW LOCATION FOR ARTICLE SEARCH */}
+                    <div style={{ display: 'flex', alignItems: 'center', background: 'white', border: '1px solid #ddd', borderRadius: '6px', padding: '0 10px', width: '250px' }}>
+                        <span style={{ fontSize: '1rem' }}>🔍</span>
+                        <input
+                            placeholder="Chercher article..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            style={{ border: 'none', padding: '10px', fontSize: '0.9rem', width: '100%', outline: 'none' }}
+                        />
+                    </div>
+
+                    <div style={{ width: '1px', height: '30px', background: '#ddd', margin: '0 10px' }}></div>
+
+                    <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', flex: 1 }}>
+                        {[
+                            { id: 'TOUT', label: '🏠 Tout' },
+                            { id: 'PRODUITS', label: '💊 Phar.' },
+                            { id: 'EXAMENS', label: '🔬 Exam.' },
+                            { id: 'ACTES MÉDICAUX', label: '💉 Actes' },
+                            { id: 'CONSULTATIONS', label: '👨‍⚕️ Consult.' },
+                            { id: 'HOSPITALISATIONS', label: '🏥 Hospit.' }
+                        ].map(cat => (
+                            <button key={cat.id} onClick={() => setSelectedCategory(cat.id)}
+                                style={{
+                                    padding: '8px 15px', borderRadius: '6px', border: 'none',
+                                    background: selectedCategory === cat.id ? '#3498db' : 'white',
+                                    color: selectedCategory === cat.id ? 'white' : '#7f8c8d',
+                                    fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', fontSize: '0.85rem'
+                                }}
+                            >
+                                {cat.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', alignContent: 'start', gap: '15px' }}>
@@ -781,49 +816,51 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                 <div style={{ fontWeight: 'bold', fontSize: '0.85rem', margin: '4px 0' }}>Séjour {adm.nom_chambre}</div>
                                 <div style={{ fontSize: '0.75rem', color: '#7f8c8d' }}>{adm.nb_jours} jours</div>
                                 <div style={{ fontWeight: 'bold', marginTop: 'auto', color: '#c0392b', fontSize: '0.9rem' }}>{(adm.nb_jours * adm.prix_journalier).toLocaleString()} F</div>
-                            </div>
+                            </div >
                         );
                     })}
-                    {items.filter(i => (selectedCategory === 'TOUT' || i.categorie === selectedCategory) && i.libelle.toLowerCase().includes(searchTerm.toLowerCase())).map(item => {
-                        const count = getQtyInCatalog(item.id, item.type);
-                        return (
-                            <div key={item.type + item.id}
-                                onClick={() => handleAddToCart(item)}
-                                style={{
-                                    ...cardStyle,
-                                    padding: '10px', // More compact padding
-                                    background: count > 0 ? '#e8f8f5' : 'white',
-                                    borderLeft: `4px solid ${item.color}`,
-                                    border: (item.stock || 0) <= 0 && item.type === 'MEDICAMENT' ? '1px solid #e74c3c' : (count > 0 ? `1px solid ${item.color}` : '1px solid #eee'),
-                                    position: 'relative'
-                                }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                                    <div style={{ fontSize: '1.4rem' }}>{item.icon}</div>
-                                    {count > 0 && <div style={{ ...badgeStyle, fontSize: '0.75rem', padding: '2px 6px' }}>{count}</div>}
-                                </div>
-
-                                <div style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2c3e50', margin: '4px 0', lineHeight: '1.2', height: '34px', overflow: 'hidden' }}>{item.libelle}</div>
-
-                                {item.type === 'MEDICAMENT' && (
-                                    <div style={{
-                                        marginBottom: '4px', fontSize: '0.7rem', fontWeight: 'bold',
-                                        color: (item.stock || 0) > 0 ? '#27ae60' : '#c0392b',
-                                        background: (item.stock || 0) > 0 ? '#e8f8f5' : '#fadbd8',
-                                        padding: '1px 6px', borderRadius: '4px', display: 'inline-block'
+                    {
+                        items.filter(i => (selectedCategory === 'TOUT' || i.categorie === selectedCategory) && i.libelle.toLowerCase().includes(searchTerm.toLowerCase())).map(item => {
+                            const count = getQtyInCatalog(item.id, item.type);
+                            return (
+                                <div key={item.type + item.id}
+                                    onClick={() => handleAddToCart(item)}
+                                    style={{
+                                        ...cardStyle,
+                                        padding: '10px', // More compact padding
+                                        background: count > 0 ? '#e8f8f5' : 'white',
+                                        borderLeft: `4px solid ${item.color}`,
+                                        border: (item.stock || 0) <= 0 && item.type === 'MEDICAMENT' ? '1px solid #e74c3c' : (count > 0 ? `1px solid ${item.color}` : '1px solid #eee'),
+                                        position: 'relative'
                                     }}>
-                                        Stock: {item.stock}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                                        <div style={{ fontSize: '1.4rem' }}>{item.icon}</div>
+                                        {count > 0 && <div style={{ ...badgeStyle, fontSize: '0.75rem', padding: '2px 6px' }}>{count}</div>}
                                     </div>
-                                )}
 
-                                <div style={{ fontWeight: 'bold', marginTop: 'auto', fontSize: '0.9rem', color: '#34495e', textAlign: 'right' }}>{item.prix.toLocaleString()} F</div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
+                                    <div style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2c3e50', margin: '4px 0', lineHeight: '1.2', height: '34px', overflow: 'hidden' }}>{item.libelle}</div>
+
+                                    {item.type === 'MEDICAMENT' && (
+                                        <div style={{
+                                            marginBottom: '4px', fontSize: '0.7rem', fontWeight: 'bold',
+                                            color: (item.stock || 0) > 0 ? '#27ae60' : '#c0392b',
+                                            background: (item.stock || 0) > 0 ? '#e8f8f5' : '#fadbd8',
+                                            padding: '1px 6px', borderRadius: '4px', display: 'inline-block'
+                                        }}>
+                                            Stock: {item.stock}
+                                        </div>
+                                    )}
+
+                                    <div style={{ fontWeight: 'bold', marginTop: 'auto', fontSize: '0.9rem', color: '#34495e', textAlign: 'right' }}>{item.prix.toLocaleString()} F</div>
+                                </div>
+                            );
+                        })
+                    }
+                </div >
+            </div >
 
             {/* --- DRAWER PANIER --- */}
-            <div style={{
+            < div style={{
                 position: 'absolute', top: 0, right: 0, bottom: 0, width: '550px', background: 'white',
                 boxShadow: '-10px 0 40px rgba(0,0,0,0.2)', transform: showCartDrawer ? 'translateX(0)' : 'translateX(100%)',
                 transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)', zIndex: 20, display: 'flex', flexDirection: 'column'
@@ -850,7 +887,15 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ flex: 1 }}>
                                     <div style={{ fontWeight: 'bold' }}>{item.libelle}</div>
-                                    <div style={{ fontSize: '0.85rem', color: '#7f8c8d' }}>{item.prixUnitaire.toLocaleString()} F / unité</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', marginTop: '5px' }}>
+                                        <input
+                                            type="number"
+                                            value={item.prixUnitaire}
+                                            onChange={e => updatePrixItem(item.uniqueId, parseInt(e.target.value) || 0)}
+                                            style={{ width: '80px', padding: '2px 5px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '0.9rem', color: '#555', marginRight: '5px' }}
+                                        />
+                                        <span style={{ fontSize: '0.85rem', color: '#7f8c8d' }}>F / unité</span>
+                                    </div>
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '20px' }}>
@@ -871,14 +916,19 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                 <button onClick={() => setPanier(p => p.filter(i => i.uniqueId !== item.uniqueId))} style={{ marginLeft: '15px', background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
                             </div>
 
-                            {patientSelectionne?.taux_couverture > 0 && (
-                                <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                {patientSelectionne?.taux_couverture > 0 ? (
                                     <label className="switch" style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
                                         <input type="checkbox" checked={item.useAssurance} onChange={() => toggleAssuranceItem(item.uniqueId)} />
-                                        <span style={{ fontSize: '0.8rem', color: '#3498db' }}>Prise en charge {patientSelectionne.nom_assurance}</span>
+                                        <span style={{ fontSize: '0.8rem', color: '#3498db' }}>Prise en charge {patientSelectionne.nom_assurance} ({patientSelectionne.taux_couverture}%)</span>
+                                        {item.useAssurance && <span style={{ fontSize: '0.8rem', color: '#27ae60', fontWeight: 'bold', marginLeft: '5px' }}>- {(item.partAssureurUnitaire * item.qte).toLocaleString()} F</span>}
                                     </label>
-                                </div>
-                            )}
+                                ) : (
+                                    <div style={{ fontSize: '0.8rem', color: '#95a5a6', fontStyle: 'italic' }}>
+                                        🛡️ Pas d'assurance active (Sélectionnez un patient assuré la-haut)
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -906,10 +956,10 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                         PROCÉDER AU RÈGLEMENT
                     </button>
                 </div>
-            </div>
+            </div >
 
             {/* --- DRAWER PAIEMENT --- */}
-            <div style={{
+            < div style={{
                 position: 'absolute', top: 0, right: 0, bottom: 0, width: '500px', background: 'white',
                 zIndex: 30, transition: 'transform 0.4s ease', transform: showPaymentDrawer ? 'translateX(0)' : 'translateX(100%)',
                 boxShadow: '-10px 0 40px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', padding: '30px'
@@ -1047,10 +1097,17 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                     </div>
                 </div>
 
-                <button onClick={() => setShowReceiptPreview(true)} style={{ width: '100%', padding: '18px', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '15px', fontSize: '1.5rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 8px 16px rgba(44, 62, 80, 0.3)' }}>
-                    VALIDER
+                <button onClick={() => {
+                    const totalVerse = (montantVerse1 || 0) + (montantVerse2 || 0);
+                    if (paymentStrategy === 'COMPTANT' && totalVerse < totalNetPatient) {
+                        if (!confirm("⚠️ Montant versé inférieur au montant à payer. Continuer en mode CRÉDIT (Reste à payer) ?")) return;
+                    }
+                    setShowReceiptPreview(true);
+                    handlePreviewTicket();
+                }} style={{ width: '100%', padding: '18px', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '15px', fontSize: '1.5rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 8px 16px rgba(44, 62, 80, 0.3)' }}>
+                    APERÇU AVANT VALIDATION
                 </button>
-            </div>
+            </div >
 
             {/* --- APERCU RECU --- */}
             {
@@ -1075,15 +1132,18 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
 
                                 <div style={{ marginBottom: '10px', fontSize: '11px' }}>
                                     <strong>Patient:</strong> {patientSelectionne?.nom_prenoms || 'Client Passage'}<br />
-                                    <strong>Caissier:</strong> {personnelSelectionne?.nom_prenoms || 'Système'}
-                                    {panier.some(i => i.useAssurance) && (
+                                    {patientSelectionne?.numero_carnet && <><strong>N° Carnet:</strong> {patientSelectionne.numero_carnet}<br /></>}
+                                    {patientSelectionne?.telephone && <><strong>Tél:</strong> {patientSelectionne.telephone}<br /></>}
+                                    <strong>Caissier:</strong> {currentUser?.nom_complet || 'Système'}<br />
+
+                                    {/* INFO ASSURANCE */}
+                                    {patientSelectionne?.nom_assurance && (
                                         <div style={{ marginTop: '5px', border: '1px solid #000', padding: '5px' }}>
-                                            <strong>ASSURANCE:</strong> {assurances.find(a => a.id.toString() === insForm.assuranceId)?.nom}<br />
+                                            <strong>ASSURANCE:</strong> {patientSelectionne.nom_assurance}<br />
+                                            {patientSelectionne.taux_couverture && <><strong>TAUX:</strong> {patientSelectionne.taux_couverture}%<br /></>}
                                             {insForm.societeId && <><strong>SOCIÉTÉ:</strong> {allSocietes.find(s => s.id.toString() === insForm.societeId)?.nom_societe}<br /></>}
-                                            <strong>MATRICULE:</strong> {insForm.matricule}<br />
-                                            {insForm.nomSalarie && <><strong>SALARIÉ:</strong> {insForm.nomSalarie}<br /></>}
+                                            {insForm.matricule && <><strong>MATRICULE:</strong> {insForm.matricule}<br /></>}
                                             {insForm.numeroBon && <><strong>N° BON:</strong> {insForm.numeroBon}<br /></>}
-                                            <strong>TAUX:</strong> {insForm.taux}%
                                         </div>
                                     )}
                                 </div>
@@ -1097,13 +1157,28 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {panier.map((item, idx) => (
-                                            <tr key={idx}>
-                                                <td style={{ paddingTop: '5px' }}>{item.libelle}</td>
-                                                <td style={{ textAlign: 'right' }}>{item.qte}</td>
-                                                <td style={{ textAlign: 'right' }}>{(item.partPatientUnitaire * item.qte).toLocaleString()}</td>
-                                            </tr>
-                                        ))}
+                                        {panier.map((item, idx) => {
+                                            const catMap: any = {
+                                                'PRODUITS': 'Pharmacie',
+                                                'EXAMENS': 'Examen',
+                                                'ACTES MÉDICAUX': 'Acte',
+                                                'CONSULTATIONS': 'Consultation',
+                                                'HOSPITALISATIONS': 'Hospitalisation',
+                                                'AUTRE': 'Service'
+                                            };
+                                            const catLabel = catMap[item.categorie || 'AUTRE'] || item.categorie;
+
+                                            return (
+                                                <tr key={idx}>
+                                                    <td style={{ paddingTop: '5px' }}>
+                                                        <div>{item.libelle}</div>
+                                                        <div style={{ fontSize: '9px', fontStyle: 'italic' }}>{catLabel}</div>
+                                                    </td>
+                                                    <td style={{ textAlign: 'right', verticalAlign: 'top' }}>{item.qte}</td>
+                                                    <td style={{ textAlign: 'right', verticalAlign: 'top' }}>{(item.partPatientUnitaire * item.qte).toLocaleString()}</td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
 
@@ -1123,13 +1198,22 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                         <span>{totalNetPatient.toLocaleString()} F</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px' }}>
-                                        <span>VERSÉ:</span>
+                                        <span>REÇU:</span>
                                         <span>{((montantVerse1 || 0) + (montantVerse2 || 0)).toLocaleString()} F</span>
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', color: totalNetPatient - ((montantVerse1 || 0) + (montantVerse2 || 0)) > 0 ? 'red' : 'black' }}>
-                                        <span>RESTE:</span>
-                                        <span>{(totalNetPatient - ((montantVerse1 || 0) + (montantVerse2 || 0))).toLocaleString()} F</span>
-                                    </div>
+
+                                    {/* LOGIC RENDU / RESTE */}
+                                    {(totalNetPatient - ((montantVerse1 || 0) + (montantVerse2 || 0))) > 0 ? (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', color: 'red' }}>
+                                            <span>RESTE À PAYER:</span>
+                                            <span>{(totalNetPatient - ((montantVerse1 || 0) + (montantVerse2 || 0))).toLocaleString()} F</span>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>RENDU:</span>
+                                            <span>{(((montantVerse1 || 0) + (montantVerse2 || 0)) - totalNetPatient).toLocaleString()} F</span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div style={{ marginTop: '15px', textAlign: 'center', fontStyle: 'italic', fontSize: '11px' }}>

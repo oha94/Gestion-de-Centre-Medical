@@ -14,15 +14,24 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
     caTotal: 0,
     caCash: 0,
     caCredit: 0,
+    diffCaSolde: 0, // NOUVEAU: CA Total - Solde Caisse
+    pharmaDayVente: 0,
+    pharmaDayAchat: 0,
+    pharmaDayMarge: 0,
     patientsTotal: 0,
     stockValue: 0,
-    details: {}, // Map of category -> { count, montant }
+    details: {}, // Map of category -> { count, montant, cash, credit }
     evolution: [],
     recouvrementTotal: 0,
     decaissementTotal: 0,
     versementTotal: 0,
     audit: []
   });
+
+  /* ---------------------- DETAILS MODAL LOGIC ---------------------- */
+  const [selectedDetail, setSelectedDetail] = useState<string | null>(null);
+  const [detailData, setDetailData] = useState<any[]>([]);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   useEffect(() => {
     chargerDonnees();
@@ -86,8 +95,17 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
 
       // 3. Valeur Stock Actuelle (Toujours temps réel)
       const resStock = await db.select<any[]>(`
-        SELECT CAST(SUM(quantite_stock * prix_vente) AS CHAR) as val FROM stock_articles
+        SELECT 
+          CAST(SUM(IFNULL(quantite_stock, 0) * IFNULL(prix_achat, 0)) AS CHAR) as val_achat,
+          CAST(SUM(IFNULL(quantite_stock, 0) * IFNULL(prix_vente, 0)) AS CHAR) as val_vente,
+          COUNT(*) as count 
+        FROM stock_articles
       `);
+
+      console.log("DEBUG STOCK REFETCH:", resStock);
+
+      const stockAchat = parseFloat(resStock[0]?.val_achat || "0");
+      const stockVente = parseFloat(resStock[0]?.val_vente || "0");
 
       // 4. Répartition détaillée par catégorie
       const resDetails = await db.select<any[]>(`
@@ -100,14 +118,49 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
                 ELSE 'LABO'
             END as cat,
             COUNT(*) as count,
-            CAST(SUM(v.montant_total) AS CHAR) as montant
+            CAST(SUM(v.montant_total) AS CHAR) as montant,
+            CAST(SUM(v.part_patient) AS CHAR) as cash,
+            CAST(SUM(v.part_assureur + v.reste_a_payer) AS CHAR) as credit
         FROM ventes v
         WHERE ${dateCondition}
         GROUP BY cat
       `);
 
+      // 4b. Calcul Financier Pharmacie (Vente, Achat, Marge)
+      const resPharmaSales = await db.select<any[]>(`
+        SELECT 
+            v.acte_libelle, 
+            v.montant_total, 
+            a.prix_achat
+        FROM ventes v
+        LEFT JOIN stock_articles a ON v.article_id = a.id
+        WHERE v.type_vente = 'MEDICAMENT' AND ${dateCondition}
+      `);
+
+      let pVente = 0;
+      let pAchat = 0;
+
+      resPharmaSales.forEach(sale => {
+        const montantVente = parseFloat(sale.montant_total || 0);
+        pVente += montantVente;
+
+        // Extraction quantité "(x3)"
+        const match = sale.acte_libelle.match(/\(x(\d+)\)/);
+        const qte = match ? parseInt(match[1]) : 1;
+        const prixAchat = parseFloat(sale.prix_achat || 0);
+
+        pAchat += (qte * prixAchat);
+      });
+
+      console.log("PHARMA FINANCIER:", { pVente, pAchat, marge: pVente - pAchat });
+
       const detailsMap = resDetails.reduce((acc, curr) => {
-        acc[curr.cat] = { count: curr.count, montant: parseFloat(curr.montant || "0") };
+        acc[curr.cat] = {
+          count: curr.count,
+          montant: parseFloat(curr.montant || "0"),
+          cash: parseFloat(curr.cash || "0"),
+          credit: parseFloat(curr.credit || "0")
+        };
         return acc;
       }, {});
 
@@ -128,10 +181,10 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
 
       // 6. Audit Trail
       const resAudit = await db.select<any[]>(`
-        SELECT v.id, v.acte_libelle, v.montant_total, v.created_at, u.nom_complet as user
+        SELECT v.id, v.acte_libelle, v.montant_total, v.date_vente, u.nom_complet as user
         FROM ventes v
         LEFT JOIN app_utilisateurs u ON v.user_id = u.id
-        ORDER BY v.created_at DESC
+        ORDER BY v.date_vente DESC
         LIMIT 8
       `);
 
@@ -139,14 +192,22 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
         caTotal: parseFloat(resGlobal[0]?.ca || "0"),
         caCash: parseFloat(resGlobal[0]?.cash || "0"),
         caCredit: parseFloat(resGlobal[0]?.credit || "0"),
+        diffCaSolde: 0, // Sera calculé juste après
         patientsTotal: resGlobal[0]?.patients || 0,
-        stockValue: parseFloat(resStock[0]?.val || "0"),
+        stockValue: stockVente,
+        stockAchat: stockAchat,
+        stockVente: stockVente,
+        stockMarge: stockVente - stockAchat,
+        pharmaDayVente: pVente,
+        pharmaDayAchat: pAchat,
+        pharmaDayMarge: pVente - pAchat,
         details: detailsMap,
         evolution: resEvol,
         audit: resAudit,
         recouvrementTotal: parseFloat(resRecouv[0]?.total || "0"),
         decaissementTotal: parseFloat(resDecaissement[0]?.total || "0"),
-        versementTotal: parseFloat(resVersement[0]?.total || "0")
+        versementTotal: parseFloat(resVersement[0]?.total || "0"),
+        stockCount: resStock[0]?.count || 0
       });
 
     } catch (e) {
@@ -158,12 +219,110 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>Chargement...</div>;
 
-  const getStat = (key: string) => stats.details?.[key] || { count: 0, montant: 0 };
+
+
+  const fetchDetails = async (category: string) => {
+    setSelectedDetail(category);
+    setLoadingDetails(true);
+    setDetailData([]);
+
+    try {
+      const db = await getDb();
+
+      // Cas Spécial: Stock Pharmacie
+      if (category === 'STOCK_PHARMA') {
+        const query = `
+          SELECT 
+            designation as libelle,
+            quantite_stock as qte, 
+            prix_vente as prix,
+            (quantite_stock * prix_vente) as total
+          FROM stock_articles
+          ORDER BY designation ASC
+        `;
+        const res = await db.select<any[]>(query);
+        setDetailData(res);
+        setLoadingDetails(false);
+        return;
+      }
+
+      let dateCondition = "";
+
+      // Réutiliser la logique de date (idéalement à extraire, mais dupliqué ici pour la rapidité)
+      if (period === "JOUR") {
+        const dateTravail = await DateTravailManager.getDateTravail();
+        dateCondition = `DATE(v.date_vente) = '${dateTravail}'`;
+      } else if (period === "SEMAINE") {
+        dateCondition = `v.date_vente >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`;
+      } else if (period === "MOIS") {
+        dateCondition = `v.date_vente >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
+      } else {
+        dateCondition = `DATE(v.date_vente) BETWEEN '${customDates.start}' AND '${customDates.end}'`;
+      }
+
+      // Filtre catégorie
+      let catCondition = "";
+      switch (category) {
+        case 'CONSULT': catCondition = "v.acte_libelle LIKE '%CONSULTATION%'"; break;
+        case 'HOSP': catCondition = "v.type_vente = 'HOSPITALISATION'"; break;
+        case 'PHARMA': catCondition = "v.type_vente = 'MEDICAMENT'"; break;
+        case 'SOINS': catCondition = "(v.acte_libelle LIKE '%SOIN%' OR v.acte_libelle LIKE '%INJECTION%' OR v.acte_libelle LIKE '%PANSEMENT%')"; break;
+        case 'LABO': catCondition = "(v.type_vente != 'HOSPITALISATION' AND v.type_vente != 'MEDICAMENT' AND v.acte_libelle NOT LIKE '%CONSULTATION%' AND v.acte_libelle NOT LIKE '%SOIN%' AND v.acte_libelle NOT LIKE '%INJECTION%' AND v.acte_libelle NOT LIKE '%PANSEMENT%')"; break;
+        default: catCondition = "1=1";
+      }
+
+      const query = `
+        SELECT 
+          v.id, 
+          v.date_vente, 
+          v.acte_libelle, 
+          v.montant_total, 
+          v.part_patient, 
+          (v.part_assureur + v.reste_a_payer) as credit,
+          p.nom_prenoms as patient,
+          u.nom_complet as user
+        FROM ventes v
+        LEFT JOIN patients p ON v.patient_id = p.id
+        LEFT JOIN app_utilisateurs u ON v.user_id = u.id
+        WHERE ${dateCondition} AND ${catCondition}
+        ORDER BY v.date_vente DESC
+      `;
+
+      const res = await db.select<any[]>(query);
+      setDetailData(res);
+    } catch (e) {
+      console.error("Error fetching details", e);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const closeDetails = () => {
+    setSelectedDetail(null);
+    setDetailData([]);
+  };
+
+  const getLabel = (cat: string) => {
+    switch (cat) {
+      case 'CONSULT': return 'Consultations';
+      case 'HOSP': return 'Hospitalisations';
+      case 'PHARMA': return 'Pharmacie (Ventes)';
+      case 'LABO': return 'Laboratoire';
+      case 'SOINS': return 'Soins Infirmiers';
+      case 'STOCK_PHARMA': return 'Stock Pharmacie (Détails)';
+      default: return 'Détails';
+    }
+  };
+
+  /* ------------------------------------------------------------------- */
+
+  const getStat = (key: string) => stats.details?.[key] || { count: 0, montant: 0, cash: 0, credit: 0 };
   const soldeTheorique = (stats.caCash + stats.recouvrementTotal) - stats.decaissementTotal;
-  const ecartCaisse = (stats.versementTotal || 0) - soldeTheorique;
+
+  const diffCaSolde = stats.caTotal - soldeTheorique;
 
   return (
-    <div style={{ padding: '20px', background: '#f8f9fa', minHeight: '100%', fontFamily: '"Inter", sans-serif' }}>
+    <div style={{ padding: '20px', background: '#f8f9fa', minHeight: '100%', fontFamily: '"Inter", sans-serif', position: 'relative' }}>
 
       {/* HEADER */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -202,59 +361,217 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
 
       {/* KPIS */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '20px' }}>
-        <KpiCard title="Chiffre d'Affaires" value={`${stats.caTotal.toLocaleString()} F`} sub={`Cash: ${stats.caCash.toLocaleString()} | Crédit: ${stats.caCredit.toLocaleString()}`} icon="💰" color="#3b82f6" onClick={() => setView('caisse')} />
-        <KpiCard title="Solde Caisse" value={`${soldeTheorique.toLocaleString()} F`} sub="Cash + Recouv - Sorties" icon="🛡️" color="#10b981" />
-        <KpiCard title="Versements" value={`${(stats.versementTotal || 0).toLocaleString()} F`} sub="Déclarés en caisse" icon="🏦" color="#6366f1" onClick={() => setView('versement')} />
-        <KpiCard title="Écart" value={`${ecartCaisse > 0 ? '+' : ''}${ecartCaisse.toLocaleString()} F`} sub={ecartCaisse === 0 ? "Parfait" : "Différence"} icon="⚖️" color={ecartCaisse >= 0 ? "#10b981" : "#ef4444"} isAlert={ecartCaisse < 0} />
+        <KpiCard title="Chiffre d'Affaires" value={`${stats.caTotal.toLocaleString()} Fr`} sub={`Cash: ${stats.caCash.toLocaleString()} | Crédit: ${stats.caCredit.toLocaleString()}`} icon="💰" color="#3b82f6" onClick={() => setView('caisse')} />
+        <KpiCard title="Solde Caisse" value={`${soldeTheorique.toLocaleString()} Fr`} sub="Cash + Recouv - Sorties" icon="🛡️" color="#10b981" />
+        <KpiCard title="Versements" value={`${(stats.versementTotal || 0).toLocaleString()} Fr`} sub="Déclarés en caisse" icon="🏦" color="#6366f1" onClick={() => setView('versement')} />
+        <KpiCard title="DIFF. CA / SOLDE" value={`${diffCaSolde.toLocaleString()} Fr`} sub="Crédit & Écarts" icon="⚖️" color="#f59e0b" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', marginBottom: '20px' }}>
         <MiniKpi title="Recouvrement" value={stats.recouvrementTotal} color="#f59e0b" icon="💸" onClick={() => setView('recouvrement')} />
         <MiniKpi title="Décaissements" value={stats.decaissementTotal} color="#ef4444" icon="📤" onClick={() => setView('decaissement')} />
-        <MiniKpi title="Valeur Stock" value={stats.stockValue} color="#8b5cf6" icon="📦" onClick={() => setView('stock')} />
+
+        {/* STOCK DETAIL CUSTOM CARD */}
+        <div onClick={() => setView('stock')} style={{ background: 'white', padding: '10px 15px', borderRadius: '10px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '5px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <span style={{ fontSize: '18px' }}>📦</span>
+            <span style={{ fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Valeur Stock</span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#6b7280' }}>
+            <span>Achat:</span>
+            <span style={{ fontWeight: '600', color: '#374151' }}>{(stats.stockAchat || 0).toLocaleString()} Fr</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#6b7280' }}>
+            <span>Vente:</span>
+            <span style={{ fontWeight: '600', color: '#374151' }}>{(stats.stockVente || 0).toLocaleString()} Fr</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '2px', paddingTop: '4px', borderTop: '1px dashed #e5e7eb' }}>
+            <span style={{ fontWeight: '600', color: '#8b5cf6' }}>Marge:</span>
+            <span style={{ fontWeight: 'bold', color: '#8b5cf6' }}>{(stats.stockMarge || 0).toLocaleString()} Fr</span>
+          </div>
+        </div>
+
         <MiniKpi title="Patients Vus" value={stats.patientsTotal} unit="" color="#ec4899" icon="👥" onClick={() => setView('patients')} />
       </div>
 
       {/* CHARTS AREA */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px', alignItems: 'start' }}>
 
-        {/* CHART */}
-        <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
-          <h3 style={{ margin: '0 0 15px 0', fontSize: '15px', color: '#1f2937' }}>📈 Évolution du Chiffre d'Affaires</h3>
-          <div style={{ flex: 1, minHeight: '250px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.evolution}>
-                <defs>
-                  <linearGradient id="colorCa" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }} />
-                <Area type="monotone" dataKey="value" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCa)" />
-              </AreaChart>
-            </ResponsiveContainer>
+        {/* LEFT COLUMN: STATS RAPIDES + CHART */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+          {/* STATS RAPIDES */}
+          {/* STATS RAPIDES */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
+
+            {/* CONSULTATIONS */}
+            <div onClick={() => fetchDetails('CONSULT')} style={{ cursor: 'pointer', background: '#fff', padding: '12px', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', transition: 'transform 0.1s' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontSize: '20px' }}>🩺</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>{getStat('CONSULT').count}</div>
+              </div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Consultations</div>
+              <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cpt:</span> <span style={{ fontWeight: '600' }}>{getStat('CONSULT').cash.toLocaleString()}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Crédit:</span> <span style={{ fontWeight: '600', color: '#f59e0b' }}>{getStat('CONSULT').credit.toLocaleString()}</span></div>
+              </div>
+            </div>
+
+            {/* HOSPITALISATIONS */}
+            <div onClick={() => fetchDetails('HOSP')} style={{ cursor: 'pointer', background: '#fff', padding: '12px', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', transition: 'transform 0.1s' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontSize: '20px' }}>🏥</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>{getStat('HOSP').count}</div>
+              </div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Hospitalisations</div>
+              <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cpt:</span> <span style={{ fontWeight: '600' }}>{getStat('HOSP').cash.toLocaleString()}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Crédit:</span> <span style={{ fontWeight: '600', color: '#f59e0b' }}>{getStat('HOSP').credit.toLocaleString()}</span></div>
+              </div>
+            </div>
+
+            {/* PHARMACIE (Standard) - Using stock count but pointing to sales ? No, keeping consistent with others */}
+            <div onClick={() => fetchDetails('PHARMA')} style={{ cursor: 'pointer', background: '#fff', padding: '12px', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', transition: 'transform 0.1s' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontSize: '20px' }}>💊</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>{getStat('PHARMA').count}</div>
+              </div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Pharmacie</div>
+              <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cpt:</span> <span style={{ fontWeight: '600' }}>{getStat('PHARMA').cash.toLocaleString()} Fr</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Crédit:</span> <span style={{ fontWeight: '600', color: '#f59e0b' }}>{getStat('PHARMA').credit.toLocaleString()} Fr</span></div>
+              </div>
+            </div>
+
+            {/* LABO */}
+            <div onClick={() => fetchDetails('LABO')} style={{ cursor: 'pointer', background: '#fff', padding: '12px', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', transition: 'transform 0.1s' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontSize: '20px' }}>🧪</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>{getStat('LABO').count}</div>
+              </div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Examens Labo</div>
+              <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cpt:</span> <span style={{ fontWeight: '600' }}>{getStat('LABO').cash.toLocaleString()}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Crédit:</span> <span style={{ fontWeight: '600', color: '#f59e0b' }}>{getStat('LABO').credit.toLocaleString()}</span></div>
+              </div>
+            </div>
+
+            {/* SOINS */}
+            <div onClick={() => fetchDetails('SOINS')} style={{ cursor: 'pointer', background: '#fff', padding: '12px', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', transition: 'transform 0.1s' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontSize: '20px' }}>🩹</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>{getStat('SOINS').count}</div>
+              </div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Actes Infirmiers</div>
+              <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cpt:</span> <span style={{ fontWeight: '600' }}>{getStat('SOINS').cash.toLocaleString()}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Crédit:</span> <span style={{ fontWeight: '600', color: '#f59e0b' }}>{getStat('SOINS').credit.toLocaleString()}</span></div>
+              </div>
+            </div>
+            {/* INDICATEUR STOCK PHARMACIE */}
+            {/* INDICATEUR PHARMA FINANCIER */}
+            <div onClick={() => fetchDetails('STOCK_PHARMA')} style={{ cursor: 'pointer', background: '#fef3c7', padding: '10px 15px', borderRadius: '12px', border: '1px solid #fcd34d', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', transition: 'transform 0.1s' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '20px' }}>💊</span>
+                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#92400e' }}>Pharmacie</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#b45309' }}>Vente:</span>
+                  <span style={{ fontWeight: 'bold', color: '#111827' }}>{(stats.pharmaDayVente || 0).toLocaleString()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#b45309' }}>Achat:</span>
+                  <span style={{ fontWeight: 'bold', color: '#4b5563' }}>{(stats.pharmaDayAchat || 0).toLocaleString()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #fcd34d', paddingTop: '4px', marginTop: '2px' }}>
+                  <span style={{ fontWeight: 'bold', color: '#92400e' }}>Marge:</span>
+                  <span style={{ fontWeight: 'bold', color: (stats.pharmaDayMarge >= 0 ? '#059669' : '#dc2626') }}>
+                    {(stats.pharmaDayMarge || 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* CATEGORIES BUTTONS */}
-          <div style={{ display: 'flex', gap: '10px', marginTop: '15px', overflowX: 'auto', paddingBottom: '5px' }}>
-            <ActivityChip label="Hospit." data={getStat('HOSP')} color="#8b5cf6" onClick={() => setView('hosp')} />
-            <ActivityChip label="Consult." data={getStat('CONSULT')} color="#3b82f6" onClick={() => setView('consultation')} />
-            <ActivityChip label="Laboratoire" data={getStat('LABO')} color="#10b981" onClick={() => setView('labo')} />
-            <ActivityChip label="Soins" data={getStat('SOINS')} color="#ef4444" onClick={() => setView('infirmier')} />
-            <ActivityChip label="Pharma" data={getStat('PHARMA')} color="#f59e0b" onClick={() => setView('stock')} />
+          {/* CHART */}
+          <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ margin: '0 0 15px 0', fontSize: '15px', color: '#1f2937' }}>📈 Évolution du Chiffre d'Affaires</h3>
+            <div style={{ flex: 1, minHeight: '250px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={stats.evolution}>
+                  <defs>
+                    <linearGradient id="colorCa" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }} />
+                  <Area type="monotone" dataKey="value" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCa)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+        </div>
+
+        {/* RIGHT COLUMN: DETAILS TABLE */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* TABLEAU DETAILLE */}
+          <div style={{ background: 'white', padding: '0', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+            <div style={{ padding: '12px 15px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+              <h3 style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: '#374151' }}>Détails par Service</h3>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ background: '#f3f4f6', color: '#6b7280', textAlign: 'left' }}>
+                    <th style={{ padding: '8px 12px', fontWeight: '600' }}>Service</th>
+                    <th style={{ padding: '8px 12px', fontWeight: '600', textAlign: 'center' }}>Nbr</th>
+                    <th style={{ padding: '8px 12px', fontWeight: '600', textAlign: 'right' }}>Total</th>
+                    <th style={{ padding: '8px 12px', fontWeight: '600', textAlign: 'right', color: '#10b981' }}>Comptant</th>
+                    <th style={{ padding: '8px 12px', fontWeight: '600', textAlign: 'right', color: '#f59e0b' }}>Crédit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { k: 'CONSULT', l: 'Consultation', c: '#3b82f6' },
+                    { k: 'HOSP', l: 'Hospitalisation', c: '#8b5cf6' },
+                    { k: 'SOINS', l: 'Infirmerie', c: '#ef4444' },
+                    { k: 'PHARMA', l: 'Pharmacie', c: '#f59e0b' },
+                    { k: 'LABO', l: 'Laboratoire', c: '#10b981' },
+                  ].map(row => {
+                    const s = getStat(row.k);
+                    return (
+                      <tr key={row.k} onClick={() => fetchDetails(row.k)} style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}>
+                        <td style={{ padding: '8px 12px', fontWeight: '500', color: row.c }}>{row.l}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: '600' }}>{s.count}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '600' }}>{s.montant.toLocaleString()} Fr</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: '#374151' }}>{s.cash.toLocaleString()} Fr</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280' }}>{s.credit.toLocaleString()} Fr</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
-        {/* AUDIT */}
-        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', maxHeight: '450px' }}>
+      </div>
+
+      {/* FOOTER AUDIT */}
+      <div style={{ marginTop: '20px' }}>
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '15px', borderBottom: '1px solid #f3f4f6', background: '#f9fafb' }}>
             <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#374151' }}>Dernières Transactions</h3>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0', maxHeight: '300px' }}>
             {stats.audit.length === 0 ? (
               <div style={{ padding: '20px', textAlign: 'center', color: '#9ca3af', fontSize: '12px' }}>Aucune activité récente</div>
             ) : (
@@ -265,16 +582,112 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '13px', fontWeight: '500', color: '#1f2937', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.acte_libelle}</div>
-                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>{new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {a.user?.split(' ')[0] || 'Syst.'}</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>{new Date(a.date_vente).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {a.user?.split(' ')[0] || 'Syst.'}</div>
                   </div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#10b981' }}>{a.montant_total.toLocaleString()}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#10b981' }}>{a.montant_total.toLocaleString()} Fr</div>
                 </div>
               ))
             )}
           </div>
         </div>
-
       </div>
+
+      {/* DETAILS MODAL */}
+      {selectedDetail && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 999,
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          backdropFilter: 'blur(3px)'
+        }} onClick={closeDetails}>
+          <div style={{
+            background: 'white', width: '90%', maxWidth: '800px', height: '80%',
+            borderRadius: '16px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            animation: 'fadeIn 0.2s ease-out'
+          }} onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{ padding: '15px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f9fafb' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#111827' }}>{getLabel(selectedDetail)}</h2>
+                <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                  {selectedDetail === 'STOCK_PHARMA' ? 'Liste complète des articles en stock' : 'Détails des transactions sur la période'}
+                </div>
+              </div>
+              <button onClick={closeDetails} style={{ border: 'none', background: 'transparent', fontSize: '24px', cursor: 'pointer', color: '#6b7280' }}>&times;</button>
+            </div>
+
+            {/* Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
+              {loadingDetails ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>Chargement des détails...</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'white', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                    <tr>
+                      {selectedDetail === 'STOCK_PHARMA' ? (
+                        <>
+                          <th style={{ textAlign: 'left', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Article</th>
+                          <th style={{ textAlign: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Quantité</th>
+                          <th style={{ textAlign: 'right', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Prix Unitaire</th>
+                          <th style={{ textAlign: 'right', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Valeur Totale</th>
+                        </>
+                      ) : (
+                        <>
+                          <th style={{ textAlign: 'left', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Date</th>
+                          <th style={{ textAlign: 'left', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Patient</th>
+                          <th style={{ textAlign: 'left', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Acte/Libellé</th>
+                          <th style={{ textAlign: 'right', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Montant</th>
+                          <th style={{ textAlign: 'right', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Cash</th>
+                          <th style={{ textAlign: 'right', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Crédit</th>
+                          <th style={{ textAlign: 'left', padding: '12px 20px', color: '#6b7280', fontWeight: '600' }}>Vendeur</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailData.length === 0 ? (
+                      <tr><td colSpan={selectedDetail === 'STOCK_PHARMA' ? 4 : 7} style={{ padding: '30px', textAlign: 'center', color: '#9ca3af' }}>Aucune donnée trouvée</td></tr>
+                    ) : (
+                      detailData.map((d: any, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                          {selectedDetail === 'STOCK_PHARMA' ? (
+                            <>
+                              <td style={{ padding: '10px 20px', color: '#111827' }}>{d.libelle}</td>
+                              <td style={{ padding: '10px 20px', textAlign: 'center', color: '#374151' }}>{d.qte}</td>
+                              <td style={{ padding: '10px 20px', textAlign: 'right', color: '#374151' }}>{parseFloat(d.prix).toLocaleString()} Fr</td>
+                              <td style={{ padding: '10px 20px', textAlign: 'right', fontWeight: '600', color: '#111827' }}>{parseFloat(d.total).toLocaleString()} Fr</td>
+                            </>
+                          ) : (
+                            <>
+                              <td style={{ padding: '10px 20px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                                {new Date(d.date_vente).toLocaleDateString()} <small>{new Date(d.date_vente).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+                              </td>
+                              <td style={{ padding: '10px 20px', color: '#111827', fontWeight: '500' }}>{d.patient || '-'}</td>
+                              <td style={{ padding: '10px 20px', color: '#374151' }}>{d.acte_libelle}</td>
+                              <td style={{ padding: '10px 20px', textAlign: 'right', fontWeight: '600', color: '#111827' }}>{parseFloat(d.montant_total).toLocaleString()} Fr</td>
+                              <td style={{ padding: '10px 20px', textAlign: 'right', color: '#10b981' }}>{parseFloat(d.part_patient).toLocaleString()} Fr</td>
+                              <td style={{ padding: '10px 20px', textAlign: 'right', color: '#ef4444' }}>{parseFloat(d.credit).toLocaleString()} Fr</td>
+                              <td style={{ padding: '10px 20px', color: '#6b7280', fontSize: '12px' }}>{d.user}</td>
+                            </>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '15px 20px', borderTop: '1px solid #e5e7eb', background: '#f9fafb', textAlign: 'right' }}>
+              <div style={{ fontSize: '12px', color: '#6b7280' }}>Total lignes: <b>{detailData.length}</b></div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -294,26 +707,4 @@ function KpiCard({ title, value, sub, icon, color, onClick, isAlert }: any) {
       <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: color }}></div>
     </div>
   );
-}
-
-function MiniKpi({ title, value, unit = 'F', color, icon, onClick }: any) {
-  return (
-    <div onClick={onClick} style={{ background: 'white', padding: '15px', borderRadius: '10px', border: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '12px', cursor: onClick ? 'pointer' : 'default' }}>
-      <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>{icon}</div>
-      <div>
-        <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: '500' }}>{title}</div>
-        <div style={{ fontSize: '16px', fontWeight: '700', color: '#1f2937' }}>{value.toLocaleString()} <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 'normal' }}>{unit}</span></div>
-      </div>
-    </div>
-  );
-}
-
-function ActivityChip({ label, data, color, onClick }: any) {
-  return (
-    <div onClick={onClick} style={{ minWidth: '80px', flex: 1, background: 'white', borderRadius: '8px', border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', cursor: 'pointer', transition: '0.2s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-      <div style={{ fontSize: '10px', fontWeight: '600', color: '#6b7280' }}>{label}</div>
-      <div style={{ fontSize: '13px', fontWeight: '700', color: color }}>{data.montant.toLocaleString()}</div>
-      <div style={{ fontSize: '9px', color: '#d1d5db' }}>{data.count} actes</div>
-    </div>
-  )
 }

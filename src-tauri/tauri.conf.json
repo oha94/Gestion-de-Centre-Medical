@@ -14,12 +14,20 @@
       {
         "title": "centremedical",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "additionalBrowserArgs": "--kiosk-printing"
       }
     ],
     "security": {
-      "csp": null
-    }
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**"
+        ]
+      }
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,
@@ -31,5 +39,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  }
+  },
+  "plugins": {}
 }

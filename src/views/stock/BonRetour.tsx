@@ -2,7 +2,11 @@ import React, { useState, useEffect } from "react";
 import { getDb, getCompanyInfo } from "../../lib/db";
 import { exportToExcel } from "../../lib/exportUtils";
 
-export default function BonRetourView({ currentUser }: { currentUser: any }) {
+import { useAuth } from "../../contexts/AuthContext";
+
+export default function BonRetourView({ currentUser: _ }: { currentUser?: any }) {
+  const { user, canEdit, canDelete } = useAuth();
+  // currentUser was used for printing signature. Now 'user' from context.
   const [bonsRetour, setBonsRetour] = useState<any[]>([]);
   const [filterDateDebut, setFilterDateDebut] = useState("");
   const [filterDateFin, setFilterDateFin] = useState("");
@@ -48,7 +52,7 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
       const db = await getDb();
       const res = await db.select<any[]>(`
         SELECT br.id, br.numero_br, br.date_br, br.bl_id,
-               CAST(br.montant_total AS DOUBLE) as montant_total,
+               CAST(br.montant_total AS CHAR) as montant_total,
                bl.numero_bl, bl.date_bl,
                f.nom as nom_fournisseur
         FROM stock_bons_retour br
@@ -56,7 +60,7 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
         LEFT JOIN stock_fournisseurs f ON bl.fournisseur_id = f.id
         ORDER BY br.date_br DESC
       `);
-      setBonsRetour(res);
+      setBonsRetour(res.map(b => ({ ...b, montant_total: parseFloat(b.montant_total || "0") })));
       console.log("Bons de retour chargés:", res.length);
     } catch (e) {
       console.error("Erreur chargement BR:", e);
@@ -64,7 +68,30 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
     }
   };
 
+  // Fix Auto-Increment for BR tables
+  const runMigrations = async () => {
+    try {
+      const db = await getDb();
+
+      // 1. stock_bons_retour
+      try { await db.execute("ALTER TABLE stock_bons_retour ADD PRIMARY KEY (id)"); } catch (e) { /* Ignore */ }
+      try {
+        await db.execute("ALTER TABLE stock_bons_retour MODIFY COLUMN id INT AUTO_INCREMENT");
+        console.log("✅ Fixed: 'stock_bons_retour' ID is now Auto-Increment.");
+      } catch (e) { console.error("Fix BR table failed:", e); }
+
+      // 2. stock_br_details
+      try { await db.execute("ALTER TABLE stock_br_details ADD PRIMARY KEY (id)"); } catch (e) { /* Ignore */ }
+      try {
+        await db.execute("ALTER TABLE stock_br_details MODIFY COLUMN id INT AUTO_INCREMENT");
+        console.log("✅ Fixed: 'stock_br_details' ID is now Auto-Increment.");
+      } catch (e) { console.error("Fix BR Details table failed:", e); }
+
+    } catch (e) { console.error("Migration wrapper error:", e); }
+  };
+
   useEffect(() => {
+    runMigrations();
     chargerListeBR();
   }, []);
 
@@ -79,7 +106,7 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
       // Rechercher le BL
       const resBL = await db.select<any[]>(`
         SELECT b.id, b.date_bl, b.numero_bl, b.fournisseur_id,
-               CAST(b.montant_total AS DOUBLE) as montant_total,
+               CAST(b.montant_total AS CHAR) as montant_total,
                f.nom as nom_fournisseur
         FROM stock_bons_livraison b
         LEFT JOIN stock_fournisseurs f ON b.fournisseur_id = f.id
@@ -96,14 +123,14 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
       // Charger les lignes du BL
       const resLignes = await db.select<any[]>(`
         SELECT d.id, d.article_id, 
-               CAST(d.quantite AS DOUBLE) as quantite,
+               CAST(d.quantite AS CHAR) as quantite,
                d.date_peremption,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
-               CAST(d.prix_vente AS DOUBLE) as prix_vente,
-               CAST(d.tva AS DOUBLE) as tva,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
+               CAST(d.prix_vente AS CHAR) as prix_vente,
+               CAST(d.tva AS CHAR) as tva,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
-               CAST(a.quantite_stock AS DOUBLE) as stock_actuel,
+               CAST(a.quantite_stock AS CHAR) as stock_actuel,
                r.libelle as rayon
         FROM stock_bl_details d
         JOIN stock_articles a ON d.article_id = a.id
@@ -123,9 +150,9 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
         article_id: ligne.article_id,
         designation: ligne.designation,
         cip: ligne.cip,
-        quantite_bl: ligne.quantite,
+        quantite_bl: parseFloat(ligne.quantite || "0"),
         quantite_retour: 0,
-        prix_achat_ht: ligne.prix_achat_ht,
+        prix_achat_ht: parseFloat(ligne.prix_achat_ht || "0"),
         rayon: ligne.rayon,
         date_peremption: ligne.date_peremption,
         motif: "",
@@ -179,6 +206,7 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
   };
 
   const enregistrerBonRetour = async () => {
+    if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     // Vérifier qu'il y a au moins un produit à retourner
     const lignesAvecRetour = lignesRetour.filter(l => l.quantite_retour > 0);
 
@@ -199,15 +227,14 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
       const montantTotal = lignesAvecRetour.reduce((sum, l) => sum + l.total_ligne, 0);
 
       // Créer le bon de retour
-      await db.execute(
+      const resVal = await db.execute(
         `INSERT INTO stock_bons_retour 
         (numero_br, date_br, bl_id, montant_total) 
         VALUES (?, ?, ?, ?)`,
         [numeroBR, dateBR, blTrouve.id, montantTotal]
       );
 
-      const brId = await db.select<any[]>("SELECT LAST_INSERT_ID() as id");
-      const newBrId = brId[0].id;
+      const newBrId = resVal.lastInsertId;
 
       // Insérer les détails et mettre à jour le stock
       for (const ligne of lignesAvecRetour) {
@@ -255,10 +282,10 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
       // Charger les détails du BR
       const res = await db.select<any[]>(`
         SELECT d.id, d.article_id, 
-               CAST(d.quantite_retour AS DOUBLE) as quantite_retour, 
+               CAST(d.quantite_retour AS CHAR) as quantite_retour, 
                d.motif,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
                r.libelle as rayon
         FROM stock_br_details d
@@ -267,8 +294,15 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
         WHERE d.br_id = ?
       `, [br.id]);
 
+      const resParsed = res.map(r => ({
+        ...r,
+        quantite_retour: parseFloat(r.quantite_retour || "0"),
+        prix_achat_ht: parseFloat(r.prix_achat_ht || "0"),
+        total_ligne: parseFloat(r.total_ligne || "0")
+      }));
+
       setBrSelectionne(br);
-      setLignesBRDetail(res);
+      setLignesBRDetail(resParsed);
       setShowDetailsBR(true);
 
     } catch (e) {
@@ -293,6 +327,7 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
   };
 
   const enregistrerModificationLigne = async (ligne: any) => {
+    if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     if (!modifData.quantite_retour || modifData.quantite_retour <= 0) {
       return alert("La quantité doit être supérieure à 0");
     }
@@ -341,10 +376,10 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
       // Recharger les lignes
       const res = await db.select<any[]>(`
         SELECT d.id, d.article_id, 
-               CAST(d.quantite_retour AS DOUBLE) as quantite_retour,
+               CAST(d.quantite_retour AS CHAR) as quantite_retour,
                d.motif,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
                r.libelle as rayon
         FROM stock_br_details d
@@ -353,7 +388,14 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
         WHERE d.br_id = ?
       `, [brSelectionne.id]);
 
-      setLignesBRDetail(res);
+      const resParsed = res.map(r => ({
+        ...r,
+        quantite_retour: parseFloat(r.quantite_retour || "0"),
+        prix_achat_ht: parseFloat(r.prix_achat_ht || "0"),
+        total_ligne: parseFloat(r.total_ligne || "0")
+      }));
+
+      setLignesBRDetail(resParsed);
 
       // Mettre à jour le montant total du BR sélectionné
       setBrSelectionne({ ...brSelectionne, montant_total: (brSelectionne.montant_total || 0) + diffTotal });
@@ -370,6 +412,7 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
   };
 
   const supprimerLigneBR = async (ligne: any) => {
+    if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     if (!window.confirm("⚠️ Supprimer cette ligne ?\n\nLe stock sera réajusté (augmenté).")) return;
 
     try {
@@ -395,10 +438,10 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
       // Recharger les lignes
       const res = await db.select<any[]>(`
         SELECT d.id, d.article_id, 
-               CAST(d.quantite_retour AS DOUBLE) as quantite_retour,
+               CAST(d.quantite_retour AS CHAR) as quantite_retour,
                d.motif,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
                r.libelle as rayon
         FROM stock_br_details d
@@ -407,7 +450,14 @@ export default function BonRetourView({ currentUser }: { currentUser: any }) {
         WHERE d.br_id = ?
       `, [brSelectionne.id]);
 
-      setLignesBRDetail(res);
+      const resParsed = res.map(r => ({
+        ...r,
+        quantite_retour: parseFloat(r.quantite_retour || "0"),
+        prix_achat_ht: parseFloat(r.prix_achat_ht || "0"),
+        total_ligne: parseFloat(r.total_ligne || "0")
+      }));
+
+      setLignesBRDetail(resParsed);
 
       alert("✅ Ligne supprimée !");
     } catch (e) {
@@ -535,7 +585,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
         </div>
 
         <div class="footer">
-          Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Système'}
+          Imprimé le ${new Date().toLocaleString('fr-FR')} par ${user?.nom_complet || 'Système'}
           <br/><br/>
           <div style="display:flex; justify-content:space-between; margin-top:20px; padding:0 50px;">
             <div>Signature Magasinier</div>
@@ -569,6 +619,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
   };
 
   const supprimerBR = async (id: number) => {
+    if (!canDelete()) return alert("⛔ Vous n'avez pas les droits de suppression.");
     if (!window.confirm("⚠️ Attention ! Supprimer ce bon de retour ?\n\nCette action est irréversible et le stock ne sera pas réajusté.")) return;
 
     try {
@@ -710,6 +761,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                       onClick={() => supprimerBR(br.id)}
                       style={{ ...btnDelete, padding: '6px 12px', fontSize: '0.8rem', marginLeft: '5px' }}
                       title="Supprimer"
+                      disabled={!canDelete()}
                     >
                       🗑️
                     </button>

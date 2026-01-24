@@ -94,7 +94,7 @@ export default function Decaissement({ currentUser }: { currentUser?: any }) {
                 await db.execute(`
                     INSERT INTO caisse_mouvements (type, montant, date_mouvement, motif, user_id, mode_paiement, reference, autorise_par, beneficiaire)
                     VALUES ('DECAISSEMENT', ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [amount, date, motif, currentUser?.id || 0, mode, `DEC-${Date.now()}`, autorisePar, beneficiaire]);
+                `, [amount, date + ' ' + new Date().toLocaleTimeString('fr-FR', { hour12: false }), motif, currentUser?.id || 0, mode, `DEC-${Date.now()}`, autorisePar, beneficiaire]);
                 alert("Décaissement validé !");
             }
 

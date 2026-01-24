@@ -15,22 +15,29 @@ export default function ConsultationView() {
   const chargerConsultations = async () => {
     const db = await getDb();
     // On filtre uniquement les prestations de catégorie 'CONSULTATION'
-    const res = await db.select<any[]>("SELECT * FROM prestations WHERE categorie = 'CONSULTATION' ORDER BY libelle ASC");
-    setConsultations(res);
+    try {
+      const res = await db.select<any[]>("SELECT id, libelle, CAST(prix_standard AS CHAR) as prix_standard FROM prestations WHERE categorie = 'CONSULTATION' ORDER BY libelle ASC");
+      setConsultations(res.map(r => ({ ...r, prix_standard: Number(r.prix_standard) })));
+    } catch (e) { console.error(e); }
   };
 
   useEffect(() => { chargerConsultations(); }, []);
 
   const ajouterConsultation = async () => {
     if (!nom || !prix) return alert("Veuillez remplir le nom et le prix");
-    const db = await getDb();
-    await db.execute(
-      "INSERT INTO prestations (libelle, prix_standard, categorie) VALUES (?, ?, 'CONSULTATION')",
-      [nom, prix]
-    );
-    setNom(""); setPrix("");
-    chargerConsultations();
-    alert("Type de consultation ajouté !");
+    try {
+      const db = await getDb();
+      await db.execute(
+        "INSERT INTO prestations (libelle, prix_standard, categorie) VALUES (?, ?, 'CONSULTATION')",
+        [nom, prix]
+      );
+      setNom(""); setPrix("");
+      chargerConsultations();
+      alert("Type de consultation ajouté !");
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'enregistrement : " + JSON.stringify(e));
+    }
   };
 
   const supprimerConsultation = async (id: number) => {

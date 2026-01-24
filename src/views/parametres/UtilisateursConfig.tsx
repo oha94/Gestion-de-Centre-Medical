@@ -138,8 +138,10 @@ export default function UtilisateursConfig({ onChangeView }: { onChangeView?: (v
 
         // Si un nouveau mot de passe est fourni
         if (formData.password) {
+          const { hashPassword } = await import("../../lib/crypto");
+          const hashed = await hashPassword(formData.password);
           query += `, password_hash = ?`;
-          updates.splice(6, 0, formData.password); // Hash en production !
+          updates.splice(6, 0, hashed);
         }
 
         query += ` WHERE id = ?`;
@@ -159,6 +161,9 @@ export default function UtilisateursConfig({ onChangeView }: { onChangeView?: (v
         }
 
         // Création
+        const { hashPassword } = await import("../../lib/crypto");
+        const hashed = await hashPassword(formData.password);
+
         await db.execute(`
           INSERT INTO app_utilisateurs 
           (nom_complet, username, email, password_hash, role_id, telephone, actif, personnel_id)
@@ -167,7 +172,7 @@ export default function UtilisateursConfig({ onChangeView }: { onChangeView?: (v
           formData.nom_complet,
           formData.username,
           formData.email,
-          formData.password, // À hasher en production !
+          hashed,
           formData.role_id,
           formData.telephone,
           formData.actif ? 1 : 0,
@@ -545,20 +550,6 @@ export default function UtilisateursConfig({ onChangeView }: { onChangeView?: (v
             )}
           </tbody>
         </table>
-      </div>
-
-      {/* Note importante */}
-      <div style={{
-        marginTop: '20px',
-        padding: '15px',
-        background: '#d1ecf1',
-        border: '1px solid #bee5eb',
-        borderRadius: '8px',
-        fontSize: '13px',
-        color: '#0c5460'
-      }}>
-        <strong>💡 Note importante :</strong> Les mots de passe sont stockés en clair dans cette version V1.
-        En production, ils doivent être hashés (bcrypt, Argon2, etc.).
       </div>
     </div>
   );

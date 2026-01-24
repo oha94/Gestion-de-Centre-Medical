@@ -4,7 +4,11 @@ import { exportToExcel as utilsExportToExcel } from "../../lib/exportUtils";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-export default function CompteFournisseurs({ currentUser }: { currentUser?: any }) {
+import { useAuth } from "../../contexts/AuthContext";
+
+export default function CompteFournisseurs({ currentUser: _ }: { currentUser?: any }) {
+  const { user, canEdit } = useAuth();
+  // currentUser was used for printing. Now 'user' from context.
   // États principaux
   const [blList, setBlList] = useState<any[]>([]);
   const [historiqueList, setHistoriqueList] = useState<any[]>([]);
@@ -48,7 +52,7 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
   useEffect(() => {
     const initialiser = async () => {
       // NOUVELLE CLÉ pour forcer la recréation
-      const migrationKey = "vues_cast_correction_v7";
+      const migrationKey = "vues_cast_correction_v9_paiements";
       const dejaMigre = localStorage.getItem(migrationKey);
 
       if (!dejaMigre) {
@@ -56,6 +60,16 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
 
         try {
           const db = await getDb();
+
+          // 🆕 FIX URGENT PAIEMENT : AUTO_INCREMENT
+          try {
+            await db.execute("ALTER TABLE stock_paiements_fournisseurs ADD PRIMARY KEY (id)");
+          } catch (e) { /* Primary key déjà là */ }
+
+          try {
+            await db.execute("ALTER TABLE stock_paiements_fournisseurs MODIFY COLUMN id INT AUTO_INCREMENT");
+            console.log("✅ Fixed: 'stock_paiements_fournisseurs' ID is now Auto-Increment.");
+          } catch (e) { console.error("Fix Paiement AI failed:", e); }
 
           // Suppression FORCÉE (ignorer les erreurs)
           const tables = ["v_situation_bl", "v_historique_paiements", "v_deductions_bl"];
@@ -83,26 +97,26 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
           try {
             await db.execute(`
               CREATE VIEW v_situation_bl AS
-              SELECT 
-                bl.id as bl_id, 
-                bl.numero_bl, 
-                bl.date_bl, 
-                bl.fournisseur_id, 
-                f.nom as nom_fournisseur,
-                CAST(bl.montant_total AS DOUBLE) as montant_bl,
-                CAST(COALESCE((SELECT SUM(ad.total_ligne) FROM stock_avoirs_fournisseurs av JOIN stock_avoir_details ad ON av.id = ad.avoir_id JOIN stock_bons_retour br ON av.br_id = br.id WHERE br.bl_id = bl.id AND ad.motif = 'Déduit facture' AND av.statut = 'Validé'), 0) AS DOUBLE) as montant_deductions,
-                CAST((bl.montant_total - COALESCE((SELECT SUM(ad.total_ligne) FROM stock_avoirs_fournisseurs av JOIN stock_avoir_details ad ON av.id = ad.avoir_id JOIN stock_bons_retour br ON av.br_id = br.id WHERE br.bl_id = bl.id AND ad.motif = 'Déduit facture' AND av.statut = 'Validé'), 0)) AS DOUBLE) as montant_net,
-                CAST(COALESCE((SELECT SUM(montant_paye) FROM stock_paiements_fournisseurs WHERE bl_id = bl.id), 0) AS DOUBLE) as montant_paye,
-                CAST((bl.montant_total - COALESCE((SELECT SUM(ad.total_ligne) FROM stock_avoirs_fournisseurs av JOIN stock_avoir_details ad ON av.id = ad.avoir_id JOIN stock_bons_retour br ON av.br_id = br.id WHERE br.bl_id = bl.id AND ad.motif = 'Déduit facture' AND av.statut = 'Validé'), 0) - COALESCE((SELECT SUM(montant_paye) FROM stock_paiements_fournisseurs WHERE bl_id = bl.id), 0)) AS DOUBLE) as solde_restant,
-                COALESCE((SELECT COUNT(*) FROM stock_paiements_fournisseurs WHERE bl_id = bl.id), 0) as nb_paiements,
-                CASE
+            SELECT
+            bl.id as bl_id,
+              bl.numero_bl,
+              bl.date_bl,
+              bl.fournisseur_id,
+              f.nom as nom_fournisseur,
+              CAST(bl.montant_total AS CHAR) as montant_bl,
+              CAST(COALESCE((SELECT SUM(ad.total_ligne) FROM stock_avoirs_fournisseurs av JOIN stock_avoir_details ad ON av.id = ad.avoir_id JOIN stock_bons_retour br ON av.br_id = br.id WHERE br.bl_id = bl.id AND ad.motif = 'Déduit facture' AND av.statut = 'Validé'), 0) AS CHAR) as montant_deductions,
+    CAST((bl.montant_total - COALESCE((SELECT SUM(ad.total_ligne) FROM stock_avoirs_fournisseurs av JOIN stock_avoir_details ad ON av.id = ad.avoir_id JOIN stock_bons_retour br ON av.br_id = br.id WHERE br.bl_id = bl.id AND ad.motif = 'Déduit facture' AND av.statut = 'Validé'), 0)) AS CHAR) as montant_net,
+      CAST(COALESCE((SELECT SUM(montant_paye) FROM stock_paiements_fournisseurs WHERE bl_id = bl.id), 0) AS CHAR) as montant_paye,
+        CAST((bl.montant_total - COALESCE((SELECT SUM(ad.total_ligne) FROM stock_avoirs_fournisseurs av JOIN stock_avoir_details ad ON av.id = ad.avoir_id JOIN stock_bons_retour br ON av.br_id = br.id WHERE br.bl_id = bl.id AND ad.motif = 'Déduit facture' AND av.statut = 'Validé'), 0) - COALESCE((SELECT SUM(montant_paye) FROM stock_paiements_fournisseurs WHERE bl_id = bl.id), 0)) AS CHAR) as solde_restant,
+          COALESCE((SELECT COUNT(*) FROM stock_paiements_fournisseurs WHERE bl_id = bl.id), 0) as nb_paiements,
+            CASE
                   WHEN COALESCE((SELECT SUM(montant_paye) FROM stock_paiements_fournisseurs WHERE bl_id = bl.id), 0) = 0 THEN 'Non payé'
                   WHEN COALESCE((SELECT SUM(montant_paye) FROM stock_paiements_fournisseurs WHERE bl_id = bl.id), 0) >= (bl.montant_total - COALESCE((SELECT SUM(ad.total_ligne) FROM stock_avoirs_fournisseurs av JOIN stock_avoir_details ad ON av.id = ad.avoir_id JOIN stock_bons_retour br ON av.br_id = br.id WHERE br.bl_id = bl.id AND ad.motif = 'Déduit facture' AND av.statut = 'Validé'), 0)) - 0.5 THEN 'Payé'
                   ELSE 'Partiellement payé'
-                END as statut_paiement
+  END as statut_paiement
               FROM stock_bons_livraison bl 
               LEFT JOIN stock_fournisseurs f ON bl.fournisseur_id = f.id
-            `);
+    `);
             console.log("✅ v_situation_bl créée");
           } catch (e) {
             console.error("❌ Erreur v_situation_bl:", e);
@@ -112,18 +126,18 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
           try {
             await db.execute(`
               CREATE VIEW v_historique_paiements AS
-              SELECT 
-                p.id, p.numero_paiement, p.date_paiement, p.bl_id, 
-                bl.numero_bl, bl.date_bl, CAST(bl.montant_total AS DOUBLE) as montant_bl, 
-                p.fournisseur_id, f.nom as nom_fournisseur, CAST(p.montant_paye AS DOUBLE) as montant_paye,
-                p.mode_paiement, p.reference_paiement, p.observation, 
-                p.created_by, p.created_at,
-                (SELECT COUNT(*) + 1 FROM stock_paiements_fournisseurs p2 WHERE p2.bl_id = p.bl_id AND p2.id < p.id) as numero_versement
+  SELECT
+  p.id, p.numero_paiement, p.date_paiement, p.bl_id,
+    bl.numero_bl, bl.date_bl, CAST(bl.montant_total AS CHAR) as montant_bl,
+    p.fournisseur_id, f.nom as nom_fournisseur, CAST(p.montant_paye AS CHAR) as montant_paye,
+    p.mode_paiement, p.reference_paiement, p.observation,
+    p.created_by, p.created_at,
+    (SELECT COUNT(*) + 1 FROM stock_paiements_fournisseurs p2 WHERE p2.bl_id = p.bl_id AND p2.id < p.id) as numero_versement
               FROM stock_paiements_fournisseurs p
               JOIN stock_bons_livraison bl ON p.bl_id = bl.id
               JOIN stock_fournisseurs f ON p.fournisseur_id = f.id
               ORDER BY p.date_paiement DESC, p.created_at DESC
-            `);
+    `);
             console.log("✅ v_historique_paiements créée");
           } catch (e) {
             console.error("❌ Erreur v_historique_paiements:", e);
@@ -133,17 +147,17 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
           try {
             await db.execute(`
               CREATE VIEW v_deductions_bl AS
-              SELECT 
-                bl.id as bl_id, bl.numero_bl, av.numero_avoir, av.date_avoir, 
-                br.numero_br, ad.article_id, art.designation, ad.quantite, 
-                CAST(ad.prix_unitaire AS DOUBLE) as prix_unitaire, CAST(ad.total_ligne AS DOUBLE) as montant_deduction
+  SELECT
+  bl.id as bl_id, bl.numero_bl, av.numero_avoir, av.date_avoir,
+    br.numero_br, ad.article_id, art.designation, ad.quantite,
+    CAST(ad.prix_unitaire AS CHAR) as prix_unitaire, CAST(ad.total_ligne AS CHAR) as montant_deduction
               FROM stock_bons_livraison bl
               JOIN stock_bons_retour br ON br.bl_id = bl.id
               JOIN stock_avoirs_fournisseurs av ON av.br_id = br.id
               JOIN stock_avoir_details ad ON ad.avoir_id = av.id
               JOIN stock_articles art ON ad.article_id = art.id
               WHERE ad.motif = 'Déduit facture' AND av.statut = 'Validé'
-            `);
+    `);
             console.log("✅ v_deductions_bl créée");
           } catch (e) {
             console.error("❌ Erreur v_deductions_bl:", e);
@@ -188,7 +202,14 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
     try {
       const db = await getDb();
       const res = await db.select<any[]>(`SELECT * FROM v_situation_bl ORDER BY date_bl DESC`);
-      setBlList(res);
+      setBlList(res.map(r => ({
+        ...r,
+        montant_bl: parseFloat(r.montant_bl || "0"),
+        montant_deductions: parseFloat(r.montant_deductions || "0"),
+        montant_net: parseFloat(r.montant_net || "0"),
+        montant_paye: parseFloat(r.montant_paye || "0"),
+        solde_restant: parseFloat(r.solde_restant || "0")
+      })));
     } catch (e) {
       console.error("Erreur chargement BL:", e);
     }
@@ -198,7 +219,11 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
     try {
       const db = await getDb();
       const res = await db.select<any[]>(`SELECT * FROM v_historique_paiements ORDER BY date_paiement DESC, created_at DESC LIMIT 100`);
-      setHistoriqueList(res);
+      setHistoriqueList(res.map(r => ({
+        ...r,
+        montant_bl: parseFloat(r.montant_bl || "0"),
+        montant_paye: parseFloat(r.montant_paye || "0")
+      })));
     } catch (e) {
       console.error("Erreur chargement historique:", e);
     }
@@ -209,21 +234,32 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
       const db = await getDb();
 
       const statsStatut = await db.select<any[]>(`
-        SELECT statut_paiement, COUNT(*) as nb_bl, CAST(SUM(montant_net) AS DOUBLE) as montant_total, CAST(SUM(montant_paye) AS DOUBLE) as total_paye, CAST(SUM(solde_restant) AS DOUBLE) as total_restant
+        SELECT statut_paiement, COUNT(*) as nb_bl, CAST(SUM(montant_net) AS CHAR) as montant_total, CAST(SUM(montant_paye) AS CHAR) as total_paye, CAST(SUM(solde_restant) AS CHAR) as total_restant
         FROM v_situation_bl GROUP BY statut_paiement
-      `);
+    `);
 
       const statsFournisseur = await db.select<any[]>(`
-        SELECT nom_fournisseur, COUNT(*) as nb_bl, CAST(SUM(montant_net) AS DOUBLE) as montant_a_payer, CAST(SUM(montant_paye) AS DOUBLE) as montant_paye, CAST(SUM(solde_restant) AS DOUBLE) as solde_restant
+        SELECT nom_fournisseur, COUNT(*) as nb_bl, CAST(SUM(montant_net) AS CHAR) as montant_a_payer, CAST(SUM(montant_paye) AS CHAR) as montant_paye, CAST(SUM(solde_restant) AS CHAR) as solde_restant
         FROM v_situation_bl WHERE solde_restant > 0 GROUP BY fournisseur_id, nom_fournisseur ORDER BY solde_restant DESC LIMIT 10
-      `);
+    `);
 
       const totaux = await db.select<any[]>(`
-        SELECT COUNT(*) as nb_total_bl, CAST(SUM(montant_bl) AS DOUBLE) as total_bl, CAST(SUM(montant_deductions) AS DOUBLE) as total_deductions, CAST(SUM(montant_net) AS DOUBLE) as total_net, CAST(SUM(montant_paye) AS DOUBLE) as total_paye, CAST(SUM(solde_restant) AS DOUBLE) as total_solde
+        SELECT COUNT(*) as nb_total_bl, CAST(SUM(montant_bl) AS CHAR) as total_bl, CAST(SUM(montant_deductions) AS CHAR) as total_deductions, CAST(SUM(montant_net) AS CHAR) as total_net, CAST(SUM(montant_paye) AS CHAR) as total_paye, CAST(SUM(solde_restant) AS CHAR) as total_solde
         FROM v_situation_bl
       `);
 
-      setDashboardStats({ parStatut: statsStatut, parFournisseur: statsFournisseur, totaux: totaux[0] });
+      setDashboardStats({
+        parStatut: statsStatut.map(s => ({ ...s, montant_total: parseFloat(s.montant_total || "0"), total_paye: parseFloat(s.total_paye || "0"), total_restant: parseFloat(s.total_restant || "0") })),
+        parFournisseur: statsFournisseur.map(s => ({ ...s, montant_a_payer: parseFloat(s.montant_a_payer || "0"), montant_paye: parseFloat(s.montant_paye || "0"), solde_restant: parseFloat(s.solde_restant || "0") })),
+        totaux: {
+          ...totaux[0],
+          total_bl: parseFloat(totaux[0]?.total_bl || "0"),
+          total_deductions: parseFloat(totaux[0]?.total_deductions || "0"),
+          total_net: parseFloat(totaux[0]?.total_net || "0"),
+          total_paye: parseFloat(totaux[0]?.total_paye || "0"),
+          total_solde: parseFloat(totaux[0]?.total_solde || "0")
+        }
+      });
     } catch (e) {
       console.error("Erreur chargement dashboard:", e);
     }
@@ -234,8 +270,10 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
       const db = await getDb();
       const paiements = await db.select<any[]>(`SELECT * FROM v_historique_paiements WHERE bl_id = ? ORDER BY date_paiement DESC`, [bl.bl_id]);
 
+
+
       setBlSelectionne(bl);
-      setPaiementsBL(paiements);
+      setPaiementsBL(paiements.map(p => ({ ...p, montant_paye: parseFloat(p.montant_paye || "0") })));
       setMontantPaiement(bl.solde_restant > 0 ? bl.solde_restant.toString() : "");
       setModePaiement("");
       setReferencePaiement("");
@@ -248,16 +286,17 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
   };
 
   const genererNumeroPaiement = (numeroBL: string, numeroVersement: number) => {
-    return `PAY-${numeroBL}-${String(numeroVersement).padStart(3, '0')}`;
+    return `PAY - ${numeroBL} -${String(numeroVersement).padStart(3, '0')} `;
   };
 
   const enregistrerPaiement = async () => {
+    if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     if (!montantPaiement || parseFloat(montantPaiement) <= 0) {
       return alert("❌ Le montant doit être supérieur à 0");
     }
 
     if (parseFloat(montantPaiement) > blSelectionne.solde_restant) {
-      return alert(`❌ Le montant ne peut pas dépasser le solde restant (${Math.ceil(blSelectionne.solde_restant).toLocaleString()} F)`);
+      return alert(`❌ Le montant ne peut pas dépasser le solde restant(${Math.ceil(blSelectionne.solde_restant).toLocaleString()} F)`);
     }
 
     if (!modePaiement) {
@@ -271,15 +310,15 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
       const datePaiement = new Date().toISOString().split('T')[0];
 
       await db.execute(`
-        INSERT INTO stock_paiements_fournisseurs 
-        (numero_paiement, bl_id, fournisseur_id, montant_paye, mode_paiement, reference_paiement, date_paiement, observation, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO stock_paiements_fournisseurs
+    (numero_paiement, bl_id, fournisseur_id, montant_paye, mode_paiement, reference_paiement, date_paiement, observation, created_by)
+  VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [numeroPaiement, blSelectionne.bl_id, blSelectionne.fournisseur_id, parseFloat(montantPaiement), modePaiement, referencePaiement || null, datePaiement, observationPaiement || null, 'admin']);
 
       const nouveauSolde = blSelectionne.solde_restant - parseFloat(montantPaiement);
       const statut = nouveauSolde <= 0.01 ? "complètement payé" : "partiellement payé";
 
-      alert(`✅ Paiement ${numeroPaiement} enregistré!\n\nMontant: ${Math.ceil(parseFloat(montantPaiement)).toLocaleString()} F\nNouveau solde: ${Math.ceil(nouveauSolde).toLocaleString()} F\nStatut: BL ${statut}`);
+      alert(`✅ Paiement ${numeroPaiement} enregistré!\n\nMontant: ${Math.ceil(parseFloat(montantPaiement)).toLocaleString()} F\nNouveau solde: ${Math.ceil(nouveauSolde).toLocaleString()} F\nStatut: BL ${statut} `);
 
       setShowPopupPaiement(false);
       setBlSelectionne(null);
@@ -295,9 +334,13 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
   const ouvrirDetailsBL = async (bl: any) => {
     try {
       const db = await getDb();
-      const deductions = await db.select<any[]>(`SELECT * FROM v_deductions_bl WHERE bl_id = ?`, [bl.bl_id]);
+      const deductions = await db.select<any[]>(`SELECT * FROM v_deductions_bl WHERE bl_id = ? `, [bl.bl_id]);
       const paiements = await db.select<any[]>(`SELECT * FROM v_historique_paiements WHERE bl_id = ? ORDER BY date_paiement DESC`, [bl.bl_id]);
-      setDetailsBL({ ...bl, deductions, paiements });
+      setDetailsBL({
+        ...bl,
+        deductions: deductions.map(d => ({ ...d, prix_unitaire: parseFloat(d.prix_unitaire || "0"), montant_deduction: parseFloat(d.montant_deduction || "0") })),
+        paiements: paiements.map(p => ({ ...p, montant_paye: parseFloat(p.montant_paye || "0") }))
+      });
       setShowDetailsBL(true);
     } catch (e) {
       console.error("Erreur détails:", e);
@@ -316,94 +359,94 @@ export default function CompteFournisseurs({ currentUser }: { currentUser?: any 
     try {
       const company = await getCompanyInfo();
       const content = `
-        <!DOCTYPE html>
-        <html>
+    < !DOCTYPE html >
+      <html>
         <head>
-            <title>Reçu ${paiement.numero_paiement}</title>
-            <style>
-                @page { size: A4; margin: 0; }
-                body { font-family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
-                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
-                .company-name { font-size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
-                .company-sub { font-size: 10px; color: #7f8c8d; }
-                .doc-title { font-size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
+          <title>Reçu ${paiement.numero_paiement}</title>
+          <style>
+            @page {size: A4; margin: 0; }
+            body {font - family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
+            .header {display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
+            .company-name {font - size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+            .company-sub {font - size: 10px; color: #7f8c8d; }
+            .doc-title {font - size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
 
-                .meta-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
-                .meta-item label { display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
-                .meta-item span { display: block; font-size: 12px; font-weight: 600; color: #333; }
+            .meta-grid {display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
+            .meta-item label {display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
+            .meta-item span {display: block; font-size: 12px; font-weight: 600; color: #333; }
 
-                .amount-box { margin: 30px 0; text-align: center; background: #fdfdfd; padding: 20px; border-radius: 6px; border: 1px dashed #ddd; }
-                .amount-label { font-size: 10px; color: #999; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 1px; }
-                .amount-value { font-size: 24px; font-weight: 700; color: #2c3e50; }
+            .amount-box {margin: 30px 0; text-align: center; background: #fdfdfd; padding: 20px; border-radius: 6px; border: 1px dashed #ddd; }
+            .amount-label {font - size: 10px; color: #999; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 1px; }
+            .amount-value {font - size: 24px; font-weight: 700; color: #2c3e50; }
 
-                .signatures { display: flex; justify-content: space-between; margin-top: 60px; }
-                .sig-box { width: 40%; text-align: center; border-top: 1px solid #eee; padding-top: 10px; font-size: 10px; color: #999; }
+            .signatures {display: flex; justify-content: space-between; margin-top: 60px; }
+            .sig-box {width: 40%; text-align: center; border-top: 1px solid #eee; padding-top: 10px; font-size: 10px; color: #999; }
 
-                .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
-            </style>
-            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+            .footer {position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
+          </style>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
         </head>
         <body>
-            <div class="header">
-                <div>
-                    <div class="company-name">${company.nom}</div>
-                    <div class="company-sub">${company.adresse || ''}
-${company.telephone ? 'Tel: ' + company.telephone : ''}
-${company.email ? 'Email: ' + company.email : ''}</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Reçu de Paiement</div>
-                    <div class="doc-title">${paiement.numero_paiement}</div>
-                </div>
+          <div class="header">
+            <div>
+              <div class="company-name">${company.nom}</div>
+              <div class="company-sub">${company.adresse || ''}
+                ${company.telephone ? 'Tel: ' + company.telephone : ''}
+                ${company.email ? 'Email: ' + company.email : ''}</div>
             </div>
+            <div style="text-align: right;">
+              <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Reçu de Paiement</div>
+              <div class="doc-title">${paiement.numero_paiement}</div>
+            </div>
+          </div>
 
-            <div class="meta-grid">
-                <div class="meta-item">
-                    <label>Date</label>
-                    <span>${new Date(paiement.date_paiement).toLocaleDateString('fr-FR')}</span>
-                </div>
-                <div class="meta-item">
-                    <label>Fournisseur</label>
-                    <span>${paiement.nom_fournisseur}</span>
-                </div>
-                <div class="meta-item">
-                    <label>Mode de Paiement</label>
-                    <span>${paiement.mode_paiement}</span>
-                </div>
+          <div class="meta-grid">
+            <div class="meta-item">
+              <label>Date</label>
+              <span>${new Date(paiement.date_paiement).toLocaleDateString('fr-FR')}</span>
             </div>
+            <div class="meta-item">
+              <label>Fournisseur</label>
+              <span>${paiement.nom_fournisseur}</span>
+            </div>
+            <div class="meta-item">
+              <label>Mode de Paiement</label>
+              <span>${paiement.mode_paiement}</span>
+            </div>
+          </div>
 
-            <div class="meta-grid">
-                <div class="meta-item">
-                    <label>Concerne le BL</label>
-                    <span>${paiement.numero_bl}</span>
-                </div>
-                <div class="meta-item">
-                    <label>Référence Paiement</label>
-                    <span>${paiement.reference_paiement || '-'}</span>
-                </div>
+          <div class="meta-grid">
+            <div class="meta-item">
+              <label>Concerne le BL</label>
+              <span>${paiement.numero_bl}</span>
             </div>
-            
-            ${paiement.observation ? `
+            <div class="meta-item">
+              <label>Référence Paiement</label>
+              <span>${paiement.reference_paiement || '-'}</span>
+            </div>
+          </div>
+
+          ${paiement.observation ? `
             <div style="margin-bottom: 20px; padding: 15px; background: #fff3cd; border-radius: 5px; color: #856404;">
                  <strong>Note:</strong> ${paiement.observation}
             </div>` : ''}
 
-            <div class="amount-box">
-                <div class="amount-label">Montant Payé</div>
-                <div class="amount-value">${Math.ceil(paiement.montant_paye).toLocaleString()} F CFA</div>
-            </div>
+          <div class="amount-box">
+            <div class="amount-label">Montant Payé</div>
+            <div class="amount-value">${Math.ceil(paiement.montant_paye).toLocaleString()} F CFA</div>
+          </div>
 
-            <div class="signatures">
-                <div class="sig-box">Signature du Fournisseur</div>
-                <div class="sig-box">Signature du Caissier</div>
-            </div>
+          <div class="signatures">
+            <div class="sig-box">Signature du Fournisseur</div>
+            <div class="sig-box">Signature du Caissier</div>
+          </div>
 
-            <div class="footer">
-                Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Système'}
-            </div>
+          <div class="footer">
+            Imprimé le ${new Date().toLocaleString('fr-FR')} par ${user?.nom_complet || 'Système'}
+          </div>
         </body>
-        </html>
-      `;
+      </html>
+  `;
 
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
@@ -441,104 +484,107 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
     try {
       const db = await getDb();
       const company = await getCompanyInfo();
-      const deductions = await db.select<any[]>(`SELECT * FROM v_deductions_bl WHERE bl_id = ?`, [bl.bl_id]);
+      const deductions = await db.select<any[]>(`SELECT * FROM v_deductions_bl WHERE bl_id = ? `, [bl.bl_id]);
       const paiements = await db.select<any[]>(`SELECT * FROM v_historique_paiements WHERE bl_id = ? ORDER BY date_paiement`, [bl.bl_id]);
 
+      const deductionsP = deductions.map(d => ({ ...d, montant_deduction: parseFloat(d.montant_deduction || "0") }));
+      const paiementsP = paiements.map(p => ({ ...p, montant_paye: parseFloat(p.montant_paye || "0") }));
+
       const content = `
-        <!DOCTYPE html>
-        <html>
+    < !DOCTYPE html >
+      <html>
         <head>
-            <title>Facture BL ${bl.numero_bl}</title>
-            <style>
-                @page { size: A4; margin: 0; }
-                body { font-family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
-                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
-                .company-name { font-size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
-                .company-sub { font-size: 10px; color: #7f8c8d; }
-                .doc-title { font-size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
+          <title>Facture BL ${bl.numero_bl}</title>
+          <style>
+            @page {size: A4; margin: 0; }
+            body {font - family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
+            .header {display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
+            .company-name {font - size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+            .company-sub {font - size: 10px; color: #7f8c8d; }
+            .doc-title {font - size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
 
-                .meta-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
-                .meta-item label { display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
-                .meta-item span { display: block; font-size: 12px; font-weight: 600; color: #333; }
+            .meta-grid {display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
+            .meta-item label {display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
+            .meta-item span {display: block; font-size: 12px; font-weight: 600; color: #333; }
 
-                table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
-                th { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; background: #fdfdfd; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; }
-                td { padding: 7px 10px; border-bottom: 1px solid #f9f9f9; color: #444; }
-                tr:last-child td { border-bottom: none; }
-                
-                .section-header { font-size: 12px; font-weight: 600; color: #555; margin: 25px 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; text-transform: uppercase; }
+            table {width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
+            th {text - align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; background: #fdfdfd; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; }
+            td {padding: 7px 10px; border-bottom: 1px solid #f9f9f9; color: #444; }
+            tr:last-child td {border - bottom: none; }
 
-                .totals-box { margin-left: auto; width: 200px; padding-top: 15px; }
-                .total-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px; }
-                .final-total { font-size: 14px; font-weight: 700; color: #2c3e50; border-top: 1px solid #eee; padding-top: 10px; margin-top: 10px; }
+            .section-header {font - size: 12px; font-weight: 600; color: #555; margin: 25px 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; text-transform: uppercase; }
 
-                .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
-            </style>
-            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+            .totals-box {margin - left: auto; width: 200px; padding-top: 15px; }
+            .total-row {display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px; }
+            .final-total {font - size: 14px; font-weight: 700; color: #2c3e50; border-top: 1px solid #eee; padding-top: 10px; margin-top: 10px; }
+
+            .footer {position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
+          </style>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
         </head>
         <body>
-            <div class="header">
-                <div>
-                    <div class="company-name">${company.nom}</div>
-                    <div class="company-sub">${company.adresse || ''}
-${company.telephone ? 'Tel: ' + company.telephone : ''}
-${company.email ? 'Email: ' + company.email : ''}</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Facture Fournisseur</div>
-                    <div class="doc-title">${bl.numero_bl}</div>
-                </div>
+          <div class="header">
+            <div>
+              <div class="company-name">${company.nom}</div>
+              <div class="company-sub">${company.adresse || ''}
+                ${company.telephone ? 'Tel: ' + company.telephone : ''}
+                ${company.email ? 'Email: ' + company.email : ''}</div>
             </div>
-
-            <div class="meta-grid">
-                <div class="meta-item">
-                    <label>Fournisseur</label>
-                    <span>${bl.nom_fournisseur}</span>
-                </div>
-                <div class="meta-item">
-                    <label>Date BL</label>
-                    <span>${new Date(bl.date_bl).toLocaleDateString('fr-FR')}</span>
-                </div>
-                <div class="meta-item">
-                    <label>Statut Paiement</label>
-                    <span>${bl.statut_paiement}</span>
-                </div>
+            <div style="text-align: right;">
+              <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Facture Fournisseur</div>
+              <div class="doc-title">${bl.numero_bl}</div>
             </div>
+          </div>
 
-            <div class="totals-box">
-                <div class="total-row">
-                    <span>Montant BL (Brut)</span>
-                    <strong>${Math.ceil(bl.montant_bl).toLocaleString()} F</strong>
-                </div>
-                ${bl.montant_deductions > 0 ? `
+          <div class="meta-grid">
+            <div class="meta-item">
+              <label>Fournisseur</label>
+              <span>${bl.nom_fournisseur}</span>
+            </div>
+            <div class="meta-item">
+              <label>Date BL</label>
+              <span>${new Date(bl.date_bl).toLocaleDateString('fr-FR')}</span>
+            </div>
+            <div class="meta-item">
+              <label>Statut Paiement</label>
+              <span>${bl.statut_paiement}</span>
+            </div>
+          </div>
+
+          <div class="totals-box">
+            <div class="total-row">
+              <span>Montant BL (Brut)</span>
+              <strong>${Math.ceil(bl.montant_bl).toLocaleString()} F</strong>
+            </div>
+            ${bl.montant_deductions > 0 ? `
                 <div class="total-row" style="color: #f39c12;">
                     <span>Déductions (Avoirs/Retours)</span>
                     <strong>- ${Math.ceil(bl.montant_deductions).toLocaleString()} F</strong>
                 </div>` : ''}
-                <div class="total-row" style="font-weight:bold; color: #2c3e50;">
-                    <span>Montant Net à Payer</span>
-                    <span>${Math.ceil(bl.montant_net).toLocaleString()} F</span>
-                </div>
-                 ${bl.montant_paye > 0 ? `
+            <div class="total-row" style="font-weight:bold; color: #2c3e50;">
+              <span>Montant Net à Payer</span>
+              <span>${Math.ceil(bl.montant_net).toLocaleString()} F</span>
+            </div>
+            ${bl.montant_paye > 0 ? `
                 <div class="total-row" style="color: #27ae60;">
                     <span>Déjà Payé</span>
                     <strong>- ${Math.ceil(bl.montant_paye).toLocaleString()} F</strong>
                 </div>` : ''}
-                
-                <div class="total-row final-total" style="color: ${bl.solde_restant > 0.5 ? '#e74c3c' : '#27ae60'}">
-                    <span>SOLDE RESTANT DÛ</span>
-                    <span>${Math.ceil(bl.solde_restant).toLocaleString()} F</span>
-                </div>
-            </div>
 
-            ${deductions.length > 0 ? `
+            <div class="total-row final-total" style="color: ${bl.solde_restant > 0.5 ? '#e74c3c' : '#27ae60'}">
+              <span>SOLDE RESTANT DÛ</span>
+              <span>${Math.ceil(bl.solde_restant).toLocaleString()} F</span>
+            </div>
+          </div>
+
+          ${deductions.length > 0 ? `
             <div class="section-header">📋 DÉTAILS DÉDUCTIONS</div>
             <table>
                 <thead>
                     <tr><th>Avoir</th><th>BR</th><th>Date</th><th>Produit</th><th style="text-align:right">Montant</th></tr>
                 </thead>
                 <tbody>
-                    ${deductions.map(d => `
+                    ${deductionsP.map(d => `
                     <tr>
                         <td>${d.numero_avoir}</td>
                         <td>${d.numero_br}</td>
@@ -550,14 +596,14 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
             </table>
             ` : ''}
 
-            ${paiements.length > 0 ? `
+          ${paiements.length > 0 ? `
             <div class="section-header">💰 HISTORIQUE PAIEMENTS</div>
             <table>
                 <thead>
                     <tr><th>Date</th><th>Référence</th><th>Mode</th><th style="text-align:right">Montant</th></tr>
                 </thead>
                 <tbody>
-                    ${paiements.map(p => `
+                    ${paiementsP.map(p => `
                     <tr>
                         <td>${new Date(p.date_paiement).toLocaleDateString('fr-FR')}</td>
                         <td>${p.numero_paiement}</td>
@@ -568,12 +614,12 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
             </table>
             ` : '<div style="margin-top:20px; color:#7f8c8d; font-style:italic;">Aucun paiement enregistré pour ce BL.</div>'}
 
-            <div class="footer">
-                 Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Système'}
-            </div>
+          <div class="footer">
+            Imprimé le ${new Date().toLocaleString('fr-FR')} par ${user?.nom_complet || 'Système'}
+          </div>
         </body>
-        </html>
-      `;
+      </html>
+  `;
 
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
@@ -615,78 +661,79 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
       const db = await getDb();
       const company = await getCompanyInfo();
       const paiements = await db.select<any[]>(`SELECT * FROM v_historique_paiements WHERE bl_id = ? ORDER BY date_paiement`, [bl.bl_id]);
+      const paiementsP = paiements.map(p => ({ ...p, montant_paye: parseFloat(p.montant_paye || "0") }));
 
-      if (paiements.length === 0) {
+      if (paiementsP.length === 0) {
         return alert("❌ Aucun paiement à imprimer pour ce BL");
       }
 
       const content = `
-        <!DOCTYPE html>
-        <html>
+    < !DOCTYPE html >
+      <html>
         <head>
-            <title>Bordereau ${bl.numero_bl}</title>
-            <style>
-                @page { size: A4; margin: 0; }
-                body { font-family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
-                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
-                .company-name { font-size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
-                .company-sub { font-size: 10px; color: #7f8c8d; }
-                .doc-title { font-size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
+          <title>Bordereau ${bl.numero_bl}</title>
+          <style>
+            @page {size: A4; margin: 0; }
+            body {font - family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
+            .header {display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
+            .company-name {font - size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+            .company-sub {font - size: 10px; color: #7f8c8d; }
+            .doc-title {font - size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
 
-                .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
-                .meta-item label { display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
-                .meta-item span { display: block; font-size: 12px; font-weight: 600; color: #333; }
+            .meta-grid {display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
+            .meta-item label {display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
+            .meta-item span {display: block; font-size: 12px; font-weight: 600; color: #333; }
 
-                table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
-                th { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; background: #fdfdfd; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; }
-                td { padding: 7px 10px; border-bottom: 1px solid #f9f9f9; color: #444; }
-                tr:last-child td { border-bottom: none; }
+            table {width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
+            th {text - align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; background: #fdfdfd; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; }
+            td {padding: 7px 10px; border-bottom: 1px solid #f9f9f9; color: #444; }
+            tr:last-child td {border - bottom: none; }
 
-                .total-section { display: flex; justify-content: flex-end; margin-top: 20px; }
-                .total-box { padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: bold; background: #f9f9f9; border: 1px solid #eee; color: #2c3e50; }
+            .total-section {display: flex; justify-content: flex-end; margin-top: 20px; }
+            .total-box {padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: bold; background: #f9f9f9; border: 1px solid #eee; color: #2c3e50; }
 
-                .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
-            </style>
-            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+            .footer {position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
+          </style>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
         </head>
         <body>
-            <div class="header">
-                <div>
-                    <div class="company-name">${company.nom}</div>
-                    <div class="company-sub">${company.adresse || ''}
-${company.telephone ? 'Tel: ' + company.telephone : ''}
-${company.email ? 'Email: ' + company.email : ''}</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Bordereau de Règlement</div>
-                    <div class="doc-title">${bl.numero_bl}</div>
-                </div>
+          <div class="header">
+            <div>
+              <div class="company-name">${company.nom}</div>
+              <div class="company-sub">${company.adresse || ''}
+                ${company.telephone ? 'Tel: ' + company.telephone : ''}
+                ${company.email ? 'Email: ' + company.email : ''}</div>
             </div>
-
-            <div class="meta-grid">
-                <div class="meta-item">
-                    <label>Fournisseur</label>
-                    <span>${bl.nom_fournisseur}</span>
-                </div>
-                <div class="meta-item">
-                    <label>Date BL</label>
-                    <span>${new Date(bl.date_bl).toLocaleDateString('fr-FR')}</span>
-                </div>
+            <div style="text-align: right;">
+              <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Bordereau de Règlement</div>
+              <div class="doc-title">${bl.numero_bl}</div>
             </div>
+          </div>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Date Paiement</th>
-                        <th>N° Paiement</th>
-                        <th>Mode</th>
-                        <th>Référence</th>
-                        <th style="text-align: right;">Montant</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${paiements.map((p, idx) => `
+          <div class="meta-grid">
+            <div class="meta-item">
+              <label>Fournisseur</label>
+              <span>${bl.nom_fournisseur}</span>
+            </div>
+            <div class="meta-item">
+              <label>Date BL</label>
+              <span>${new Date(bl.date_bl).toLocaleDateString('fr-FR')}</span>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date Paiement</th>
+                <th>N° Paiement</th>
+                <th>Mode</th>
+                <th>Référence</th>
+                <th style="text-align: right;">Montant</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${paiementsP.map((p, idx) => `
                     <tr>
                         <td>${idx + 1}</td>
                         <td>${new Date(p.date_paiement).toLocaleDateString('fr-FR')}</td>
@@ -695,26 +742,26 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                         <td>${p.reference_paiement || '-'}</td>
                         <td style="text-align: right;">${Math.ceil(p.montant_paye).toLocaleString()} F</td>
                     </tr>`).join('')}
-                </tbody>
-            </table>
+            </tbody>
+          </table>
 
-            <div class="total-section">
-                <div class="total-box">
-                    TOTAL PAYÉ : ${Math.ceil(paiements.reduce((sum, p) => sum + p.montant_paye, 0)).toLocaleString()} F
-                </div>
+          <div class="total-section">
+            <div class="total-box">
+              TOTAL PAYÉ : ${Math.ceil(paiementsP.reduce((sum, p) => sum + p.montant_paye, 0)).toLocaleString()} F
             </div>
+          </div>
 
-            <div style="margin-top: 60px; display: flex; justify-content: space-between;">
-                <div style="border-top: 1px solid #ccc; width: 40%; text-align: center; padding-top: 10px;">Signature du Fournisseur</div>
-                <div style="border-top: 1px solid #ccc; width: 40%; text-align: center; padding-top: 10px;">Signature du Responsable</div>
-            </div>
+          <div style="margin-top: 60px; display: flex; justify-content: space-between;">
+            <div style="border-top: 1px solid #ccc; width: 40%; text-align: center; padding-top: 10px;">Signature du Fournisseur</div>
+            <div style="border-top: 1px solid #ccc; width: 40%; text-align: center; padding-top: 10px;">Signature du Responsable</div>
+          </div>
 
-            <div class="footer">
-                Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Système'}
-            </div>
+          <div class="footer">
+            Imprimé le ${new Date().toLocaleString('fr-FR')} par ${user?.nom_complet || 'Système'}
+          </div>
         </body>
-        </html>
-      `;
+      </html>
+  `;
 
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
@@ -758,75 +805,75 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
       const nomFournisseur = fournisseurSelectionne ? fournisseurSelectionne.nom : "Tous les fournisseurs";
 
       const content = `
-        <!DOCTYPE html>
-        <html>
+    < !DOCTYPE html >
+      <html>
         <head>
-            <title>Relevé ${nomFournisseur}</title>
-            <style>
-                @page { size: A4; margin: 0; }
-                body { font-family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
-                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
-                .company-name { font-size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
-                .company-sub { font-size: 10px; color: #7f8c8d; }
-                .doc-title { font-size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
+          <title>Relevé ${nomFournisseur}</title>
+          <style>
+            @page {size: A4; margin: 0; }
+            body {font - family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
+            .header {display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
+            .company-name {font - size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+            .company-sub {font - size: 10px; color: #7f8c8d; }
+            .doc-title {font - size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
 
-                .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
-                .meta-item label { display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
-                .meta-item span { display: block; font-size: 12px; font-weight: 600; color: #333; }
+            .meta-grid {display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
+            .meta-item label {display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
+            .meta-item span {display: block; font-size: 12px; font-weight: 600; color: #333; }
 
-                table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
-                th { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; background: #fdfdfd; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; }
-                td { padding: 7px 10px; border-bottom: 1px solid #f9f9f9; color: #444; }
-                tr:last-child td { border-bottom: none; }
+            table {width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
+            th {text - align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; background: #fdfdfd; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; }
+            td {padding: 7px 10px; border-bottom: 1px solid #f9f9f9; color: #444; }
+            tr:last-child td {border - bottom: none; }
 
-                .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 20px; }
-                .kpi-box { padding: 10px; background: #fdfdfd; border-radius: 6px; border: 1px solid #eee; }
-                .kpi-label { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
-                .kpi-value { font-size: 14px; font-weight: 700; color: #2c3e50; margin-top: 3px; }
+            .kpi-row {display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 20px; }
+            .kpi-box {padding: 10px; background: #fdfdfd; border-radius: 6px; border: 1px solid #eee; }
+            .kpi-label {font - size: 9px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+            .kpi-value {font - size: 14px; font-weight: 700; color: #2c3e50; margin-top: 3px; }
 
-                .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
-            </style>
-            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+            .footer {position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
+          </style>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
         </head>
         <body>
-            <div class="header">
-                <div>
-                    <div class="company-name">${company.nom}</div>
-                    <div class="company-sub">${company.adresse || ''}
-${company.telephone ? 'Tel: ' + company.telephone : ''}
-${company.email ? 'Email: ' + company.email : ''}</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Document</div>
-                    <div class="doc-title">RELEVÉ DE COMPTE</div>
-                </div>
+          <div class="header">
+            <div>
+              <div class="company-name">${company.nom}</div>
+              <div class="company-sub">${company.adresse || ''}
+                ${company.telephone ? 'Tel: ' + company.telephone : ''}
+                ${company.email ? 'Email: ' + company.email : ''}</div>
             </div>
-
-            <div class="meta-grid">
-                <div class="meta-item">
-                    <label>Fournisseur</label>
-                    <span>${nomFournisseur}</span>
-                </div>
-                <div class="meta-item">
-                    <label>Nombre de BL</label>
-                    <span>${blFiltres.length}</span>
-                </div>
+            <div style="text-align: right;">
+              <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Document</div>
+              <div class="doc-title">RELEVÉ DE COMPTE</div>
             </div>
+          </div>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>N° BL</th>
-                        <th>Brut</th>
-                        <th>Déductions</th>
-                        <th>Net</th>
-                        <th>Payé</th>
-                        <th style="text-align: right;">Solde Dû</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${blFiltres.map(bl => `
+          <div class="meta-grid">
+            <div class="meta-item">
+              <label>Fournisseur</label>
+              <span>${nomFournisseur}</span>
+            </div>
+            <div class="meta-item">
+              <label>Nombre de BL</label>
+              <span>${blFiltres.length}</span>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>N° BL</th>
+                <th>Brut</th>
+                <th>Déductions</th>
+                <th>Net</th>
+                <th>Payé</th>
+                <th style="text-align: right;">Solde Dû</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${blFiltres.map(bl => `
                     <tr>
                         <td>${new Date(bl.date_bl).toLocaleDateString('fr-FR')}</td>
                         <td>${bl.numero_bl}</td>
@@ -836,30 +883,30 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                         <td style="color: #27ae60;">${bl.montant_paye > 0 ? Math.ceil(bl.montant_paye).toLocaleString() : '-'}</td>
                         <td style="text-align: right; color: ${bl.solde_restant > 0.5 ? '#e74c3c' : '#27ae60'}; font-weight: bold;">${Math.ceil(bl.solde_restant).toLocaleString()} F</td>
                     </tr>`).join('')}
-                </tbody>
-            </table>
+            </tbody>
+          </table>
 
-            <div class="kpi-row">
-                 <div class="kpi-box">
-                    <div class="kpi-label">Montant Net Total</div>
-                    <div class="kpi-value" style="color: #3498db;">${Math.ceil(blFiltres.reduce((sum, bl) => sum + bl.montant_net, 0)).toLocaleString()} F</div>
-                </div>
-                 <div class="kpi-box">
-                    <div class="kpi-label">Total Payé</div>
-                    <div class="kpi-value" style="color: #27ae60;">${Math.ceil(blFiltres.reduce((sum, bl) => sum + bl.montant_paye, 0)).toLocaleString()} F</div>
-                </div>
-                 <div class="kpi-box">
-                    <div class="kpi-label">Solde Restant</div>
-                    <div class="kpi-value" style="color: #e74c3c;">${Math.ceil(blFiltres.reduce((sum, bl) => sum + bl.solde_restant, 0)).toLocaleString()} F</div>
-                </div>
+          <div class="kpi-row">
+            <div class="kpi-box">
+              <div class="kpi-label">Montant Net Total</div>
+              <div class="kpi-value" style="color: #3498db;">${Math.ceil(blFiltres.reduce((sum, bl) => sum + bl.montant_net, 0)).toLocaleString()} F</div>
             </div>
+            <div class="kpi-box">
+              <div class="kpi-label">Total Payé</div>
+              <div class="kpi-value" style="color: #27ae60;">${Math.ceil(blFiltres.reduce((sum, bl) => sum + bl.montant_paye, 0)).toLocaleString()} F</div>
+            </div>
+            <div class="kpi-box">
+              <div class="kpi-label">Solde Restant</div>
+              <div class="kpi-value" style="color: #e74c3c;">${Math.ceil(blFiltres.reduce((sum, bl) => sum + bl.solde_restant, 0)).toLocaleString()} F</div>
+            </div>
+          </div>
 
-            <div class="footer">
-                Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Système'}
-            </div>
+          <div class="footer">
+            Imprimé le ${new Date().toLocaleString('fr-FR')} par ${user?.nom_complet || 'Système'}
+          </div>
         </body>
-        </html>
-      `;
+      </html>
+  `;
 
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
@@ -1146,7 +1193,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                   <td style={tdStyle}><strong>{bl.numero_bl}</strong></td>
                   <td style={tdStyle}>{bl.nom_fournisseur}</td>
                   <td style={tdStyle}>{Math.ceil(bl.montant_bl).toLocaleString()} F</td>
-                  <td style={{ ...tdStyle, color: '#f39c12' }}>{bl.montant_deductions > 0 ? `-${Math.ceil(bl.montant_deductions).toLocaleString()} F` : '-'}</td>
+                  <td style={{ ...tdStyle, color: '#f39c12' }}>{bl.montant_deductions > 0 ? `- ${Math.ceil(bl.montant_deductions).toLocaleString()} F` : '-'}</td>
                   <td style={tdStyle}><strong>{Math.ceil(bl.montant_net).toLocaleString()} F</strong></td>
                   <td style={{ ...tdStyle, color: '#27ae60' }}>{bl.montant_paye > 0 ? Math.ceil(bl.montant_paye).toLocaleString() + ' F' : '-'}</td>
                   <td style={{ ...tdStyle, color: bl.solde_restant > 0 ? '#e74c3c' : '#27ae60', fontWeight: 'bold' }}>{Math.ceil(bl.solde_restant).toLocaleString()} F</td>
@@ -1164,7 +1211,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                       'Payé': bl.montant_paye,
                       'Solde': bl.solde_restant,
                       'Statut': bl.statut_paiement
-                    }], `BL_${bl.numero_bl}`)} style={{ ...btnIconStyle, color: '#107c41' }} title="Excel">📊</button>
+                    }], `BL_${bl.numero_bl} `)} style={{ ...btnIconStyle, color: '#107c41' }} title="Excel">📊</button>
                     {bl.nb_paiements > 0 && <button onClick={() => imprimerBordereauReglement(bl)} style={{ ...btnIconStyle, color: '#9b59b6' }} title="Imprimer Bordereau">📄</button>}
                     {bl.solde_restant > 0 && <button onClick={() => ouvrirPopupPaiement(bl)} style={{ ...btnIconStyle, color: '#27ae60' }} title="Payer">💰</button>}
                   </td>
@@ -1204,7 +1251,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                       'Montant': paiement.montant_paye,
                       'Mode': paiement.mode_paiement,
                       'Référence': paiement.reference_paiement
-                    }], `Recu_${paiement.numero_paiement}`)} style={{ ...btnIconStyle, color: '#107c41' }} title="Excel">📊</button>
+                    }], `Recu_${paiement.numero_paiement} `)} style={{ ...btnIconStyle, color: '#107c41' }} title="Excel">📊</button>
                     <button onClick={() => supprimerPaiement(paiement.id, paiement.numero_paiement)} style={{ ...btnIconStyle, color: '#e74c3c' }} title="Supprimer">🗑️</button>
                   </td>
                 </tr>

@@ -2,7 +2,11 @@ import React, { useState, useEffect } from "react";
 import { getDb, getCompanyInfo } from "../../lib/db";
 import { exportToExcel } from "../../lib/exportUtils";
 
-export default function BonLivraisonView({ currentUser }: { currentUser?: any }) {
+import { useAuth } from "../../contexts/AuthContext";
+
+export default function BonLivraisonView({ currentUser: _ }: { currentUser?: any }) {
+  const { user, canEdit, canDelete } = useAuth();
+  // currentUser was used for logging deletions and printing signature. Now 'user' from context.
   const [bons, setBons] = useState<any[]>([]);
   const [fournisseurs, setFournisseurs] = useState<any[]>([]);
   const [articles, setArticles] = useState<any[]>([]);
@@ -35,13 +39,13 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
       const db = await getDb();
       const res = await db.select<any[]>(`
         SELECT b.id, b.date_bl, b.numero_bl, b.fournisseur_id, 
-               CAST(b.montant_total AS DOUBLE) as montant_total,
+               CAST(b.montant_total AS CHAR) as montant_total,
                f.nom as nom_fournisseur
         FROM stock_bons_livraison b
         LEFT JOIN stock_fournisseurs f ON b.fournisseur_id = f.id
         ORDER BY b.date_bl DESC
       `);
-      setBons(res);
+      setBons(res.map(b => ({ ...b, montant_total: parseFloat(b.montant_total || "0") })));
       console.log("Bons chargés:", res.length);
     } catch (e) {
       console.error("Erreur chargement BL:", e);
@@ -82,7 +86,39 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
     }
   };
 
-  useEffect(() => { chargerDonnees(); }, []);
+  // Fix Auto-Increment for BL tables
+  const runMigrations = async () => {
+    try {
+      const db = await getDb();
+
+      // 1. stock_bons_livraison
+      try { await db.execute("ALTER TABLE stock_bons_livraison ADD PRIMARY KEY (id)"); } catch (e) { /* Ignore */ }
+      try {
+        await db.execute("ALTER TABLE stock_bons_livraison MODIFY COLUMN id INT AUTO_INCREMENT");
+        console.log("✅ Fixed: 'stock_bons_livraison' ID is now Auto-Increment.");
+      } catch (e) { console.error("Fix BL table failed:", e); }
+
+      // 2. stock_bl_details
+      try { await db.execute("ALTER TABLE stock_bl_details ADD PRIMARY KEY (id)"); } catch (e) { /* Ignore */ }
+      try {
+        await db.execute("ALTER TABLE stock_bl_details MODIFY COLUMN id INT AUTO_INCREMENT");
+        console.log("✅ Fixed: 'stock_bl_details' ID is now Auto-Increment.");
+      } catch (e) { console.error("Fix BL Details table failed:", e); }
+
+      // 3. stock_bl_supprimes (Fix pour erreur suppression)
+      try { await db.execute("ALTER TABLE stock_bl_supprimes ADD PRIMARY KEY (id)"); } catch (e) { /* Ignore */ }
+      try {
+        await db.execute("ALTER TABLE stock_bl_supprimes MODIFY COLUMN id INT AUTO_INCREMENT");
+        console.log("✅ Fixed: 'stock_bl_supprimes' ID is now Auto-Increment.");
+      } catch (e) { console.error("Fix BL Supprimes table failed:", e); }
+
+    } catch (e) { console.error("Migration wrapper error:", e); }
+  };
+
+  useEffect(() => {
+    runMigrations();
+    chargerDonnees();
+  }, []);
 
   const bonsFiltres = bons.filter(b => {
     const dateB = new Date(b.date_bl).toISOString().split('T')[0];
@@ -95,6 +131,7 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
   const paginatedBons = bonsFiltres.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const creerBonLivraison = async () => {
+    if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     if (!newBL.numero || !newBL.fournisseurId) return alert("Numéro de BL et Fournisseur obligatoires");
 
     try {
@@ -108,7 +145,7 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
 
       const nouveauBon = await db.select<any[]>(`
         SELECT b.id, b.date_bl, b.numero_bl, b.fournisseur_id, 
-               CAST(b.montant_total AS DOUBLE) as montant_total,
+               CAST(b.montant_total AS CHAR) as montant_total,
                f.nom as nom_fournisseur
         FROM stock_bons_livraison b
         LEFT JOIN stock_fournisseurs f ON b.fournisseur_id = f.id
@@ -116,7 +153,9 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
       `);
 
       if (nouveauBon.length > 0) {
-        setSelectedBL(nouveauBon[0]);
+        const bon = nouveauBon[0];
+        bon.montant_total = parseFloat(bon.montant_total || "0");
+        setSelectedBL(bon);
         setLignesBL([]);
         setShowDetails(true);
       }
@@ -137,12 +176,12 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
       // MODIFICATION ICI : Jointure pour le rayon
       const res = await db.select<any[]>(`
         SELECT d.id, d.article_id, d.quantite, d.date_peremption,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
-               CAST(d.prix_vente AS DOUBLE) as prix_vente,
-               CAST(d.tva AS DOUBLE) as tva,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
+               CAST(d.prix_vente AS CHAR) as prix_vente,
+               CAST(d.tva AS CHAR) as tva,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
-               CAST(a.quantite_stock AS DOUBLE) as stock_actuel,
+               CAST(a.quantite_stock AS CHAR) as stock_actuel,
                r.libelle as rayon
         FROM stock_bl_details d
         JOIN stock_articles a ON d.article_id = a.id
@@ -153,7 +192,12 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
       // Calculer le stock avant réception pour chaque ligne
       const resAvecStock = res.map(ligne => ({
         ...ligne,
-        stock_avant: ligne.stock_actuel - ligne.quantite
+        prix_achat_ht: parseFloat(ligne.prix_achat_ht || "0"),
+        prix_vente: parseFloat(ligne.prix_vente || "0"),
+        tva: parseFloat(ligne.tva || "0"),
+        total_ligne: parseFloat(ligne.total_ligne || "0"),
+        stock_actuel: parseFloat(ligne.stock_actuel || "0"),
+        stock_avant: parseFloat(ligne.stock_actuel || "0") - ligne.quantite
       }));
 
       setLignesBL(resAvecStock);
@@ -207,6 +251,7 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
   };
 
   const ajouterProduitAuBL = async () => {
+    if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     if (!ligne.articleId || !ligne.qte) return alert("Article et Quantité requis");
 
     // LOCK CHECK
@@ -236,12 +281,12 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
       // MODIFICATION ICI : Jointure pour le rayon
       const res = await db2.select<any[]>(`
         SELECT d.id, d.article_id, d.quantite, d.date_peremption,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
-               CAST(d.prix_vente AS DOUBLE) as prix_vente,
-               CAST(d.tva AS DOUBLE) as tva,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
+               CAST(d.prix_vente AS CHAR) as prix_vente,
+               CAST(d.tva AS CHAR) as tva,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
-               CAST(a.quantite_stock AS DOUBLE) as stock_actuel,
+               CAST(a.quantite_stock AS CHAR) as stock_actuel,
                r.libelle as rayon
         FROM stock_bl_details d
         JOIN stock_articles a ON d.article_id = a.id
@@ -251,7 +296,12 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
 
       const resAvecStock = res.map(ligne => ({
         ...ligne,
-        stock_avant: ligne.stock_actuel - ligne.quantite
+        prix_achat_ht: parseFloat(ligne.prix_achat_ht || "0"),
+        prix_vente: parseFloat(ligne.prix_vente || "0"),
+        tva: parseFloat(ligne.tva || "0"),
+        total_ligne: parseFloat(ligne.total_ligne || "0"),
+        stock_actuel: parseFloat(ligne.stock_actuel || "0"),
+        stock_avant: parseFloat(ligne.stock_actuel || "0") - ligne.quantite
       }));
 
       setLignesBL(resAvecStock);
@@ -263,6 +313,7 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
   };
 
   const supprimerProduitDuBL = async (detailId: number, articleId: number, qte: number, montantLigne: number) => {
+    if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     // LOCK CHECK
     if (await checkInventoryLock(selectedBL.date_bl)) return;
 
@@ -280,12 +331,12 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
       // MODIFICATION ICI : Jointure pour le rayon
       const res = await db2.select<any[]>(`
         SELECT d.id, d.article_id, d.quantite, d.date_peremption,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
-               CAST(d.prix_vente AS DOUBLE) as prix_vente,
-               CAST(d.tva AS DOUBLE) as tva,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
+               CAST(d.prix_vente AS CHAR) as prix_vente,
+               CAST(d.tva AS CHAR) as tva,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
-               CAST(a.quantite_stock AS DOUBLE) as stock_actuel,
+               CAST(a.quantite_stock AS CHAR) as stock_actuel,
                r.libelle as rayon
         FROM stock_bl_details d
         JOIN stock_articles a ON d.article_id = a.id
@@ -295,7 +346,12 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
 
       const resAvecStock = res.map(ligne => ({
         ...ligne,
-        stock_avant: ligne.stock_actuel - ligne.quantite
+        prix_achat_ht: parseFloat(ligne.prix_achat_ht || "0"),
+        prix_vente: parseFloat(ligne.prix_vente || "0"),
+        tva: parseFloat(ligne.tva || "0"),
+        total_ligne: parseFloat(ligne.total_ligne || "0"),
+        stock_actuel: parseFloat(ligne.stock_actuel || "0"),
+        stock_avant: parseFloat(ligne.stock_actuel || "0") - ligne.quantite
       }));
 
       setLignesBL(resAvecStock);
@@ -305,6 +361,7 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
   };
 
   const supprimerBL = async (id: number) => {
+    if (!canDelete()) return alert("⛔ Vous n'avez pas les droits de suppression.");
     const bl = bons.find(b => b.id === id);
     if (!bl) return;
 
@@ -317,14 +374,19 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
       const db = await getDb();
 
       // LOGGER LA SUPPRESSION (Archivage)
-      // On récupère les détails pour le JSON
-      const details = await db.select<any[]>("SELECT * FROM stock_bl_details WHERE bl_id = ?", [id]);
+      // On récupère les détails pour le JSON AVEC la désignation pour lecture future
+      const details = await db.select<any[]>(`
+        SELECT d.*, a.designation 
+        FROM stock_bl_details d
+        LEFT JOIN stock_articles a ON d.article_id = a.id
+        WHERE d.bl_id = ?
+      `, [id]);
       const detailsJson = JSON.stringify(details);
 
       await db.execute(`
         INSERT INTO stock_bl_supprimes (bl_id, numero_bl, fournisseur_nom, montant_total, user_id, details_json) 
         VALUES (?, ?, ?, ?, ?, ?)
-      `, [bl.id, bl.numero_bl, bl.nom_fournisseur || 'Inconnu', bl.montant_total || 0, currentUser?.id || 0, detailsJson]);
+      `, [bl.id, bl.numero_bl, bl.nom_fournisseur || 'Inconnu', bl.montant_total || 0, user?.id || 0, detailsJson]);
 
       // Note: Idealement on devrait déduire le stock des lignes si elles ont été ajoutées.
       // Cependant, `supprimerProduitDuBL` le fait, mais pas `supprimerBL` (faille potentielle dans code existant).
@@ -358,6 +420,7 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
   };
 
   const enregistrerModification = async (ligneBL: any) => {
+    if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     if (!modifData.quantite || modifData.quantite <= 0) {
       return alert("La quantité doit être supérieure à 0");
     }
@@ -412,12 +475,12 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
       // MODIFICATION ICI : Jointure pour le rayon
       const res = await db.select<any[]>(`
         SELECT d.id, d.article_id, d.quantite, d.date_peremption,
-               CAST(d.prix_achat_ht AS DOUBLE) as prix_achat_ht,
-               CAST(d.prix_vente AS DOUBLE) as prix_vente,
-               CAST(d.tva AS DOUBLE) as tva,
-               CAST(d.total_ligne AS DOUBLE) as total_ligne,
+               CAST(d.prix_achat_ht AS CHAR) as prix_achat_ht,
+               CAST(d.prix_vente AS CHAR) as prix_vente,
+               CAST(d.tva AS CHAR) as tva,
+               CAST(d.total_ligne AS CHAR) as total_ligne,
                a.designation, a.cip,
-               CAST(a.quantite_stock AS DOUBLE) as stock_actuel,
+               CAST(a.quantite_stock AS CHAR) as stock_actuel,
                r.libelle as rayon
         FROM stock_bl_details d
         JOIN stock_articles a ON d.article_id = a.id
@@ -427,7 +490,12 @@ export default function BonLivraisonView({ currentUser }: { currentUser?: any })
 
       const resAvecStock = res.map(ligne => ({
         ...ligne,
-        stock_avant: ligne.stock_actuel - ligne.quantite
+        prix_achat_ht: parseFloat(ligne.prix_achat_ht || "0"),
+        prix_vente: parseFloat(ligne.prix_vente || "0"),
+        tva: parseFloat(ligne.tva || "0"),
+        total_ligne: parseFloat(ligne.total_ligne || "0"),
+        stock_actuel: parseFloat(ligne.stock_actuel || "0"),
+        stock_avant: parseFloat(ligne.stock_actuel || "0") - ligne.quantite
       }));
 
       setLignesBL(resAvecStock);
@@ -589,7 +657,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
         </div>
 
         <div class="footer">
-          Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Système'}
+          Imprimé le ${new Date().toLocaleString('fr-FR')} par ${user?.nom_complet || 'Système'}
         </div>
       </body>
       </html>
@@ -618,8 +686,8 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
   };
 
   const articlesFiltres = articles.filter(a =>
-    a.designation.toLowerCase().includes(searchArticle.toLowerCase()) ||
-    a.cip.toLowerCase().includes(searchArticle.toLowerCase())
+    (a.designation || "").toLowerCase().includes(searchArticle.toLowerCase()) ||
+    (a.cip || "").toLowerCase().includes(searchArticle.toLowerCase())
   );
 
   // ===== CALCULS FINANCIERS =====
@@ -657,7 +725,11 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
             </select>
           </div>
           <div><label style={labelS}>Numéro BL</label><input value={newBL.numero} onChange={e => setNewBL({ ...newBL, numero: e.target.value })} style={inputStyle} placeholder="Ex: BL-1024" /></div>
-          <button onClick={creerBonLivraison} style={btnOk}>Créer</button>
+          {canEdit() ? (
+            <button onClick={creerBonLivraison} style={btnOk}>Créer</button>
+          ) : (
+            <div style={{ color: '#e74c3c', padding: '10px' }}>🚫 Création interdite</div>
+          )}
         </div>
       </div>
 
@@ -695,7 +767,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                   <td style={tdStyle}><strong>{Math.ceil(b.montant_total || 0).toLocaleString()} F</strong></td>
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     <button onClick={() => ouvrirDetails(b)} style={btnSee}>👁️ Détails</button>
-                    <button onClick={() => supprimerBL(b.id)} style={{ ...btnDelete, padding: '5px 10px', fontSize: '0.8rem' }}>🗑️</button>
+                    {canDelete() && <button onClick={() => supprimerBL(b.id)} style={{ ...btnDelete, padding: '5px 10px', fontSize: '0.8rem' }}>🗑️</button>}
                   </td>
                 </tr>
               ))
