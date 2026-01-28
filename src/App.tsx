@@ -213,6 +213,9 @@ function AppContent() {
         )
       `);
 
+      // Migration pour agrandir la colonne logo_url (Fix Data too long)
+      try { await db.execute("ALTER TABLE app_parametres_entreprise MODIFY COLUMN logo_url LONGTEXT"); } catch (e) { }
+
       // Table Menus
       await db.execute(`
         CREATE TABLE IF NOT EXISTS app_menus (

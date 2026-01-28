@@ -1,27 +1,80 @@
 import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../lib/db";
 
+
+
 export default function HospitalisationView() {
-  const [activeTab, setActiveTab] = useState<"catalogue" | "admissions" | "archives" | "config_lits">("catalogue");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "catalogue" | "admissions" | "archives" | "config_lits">("dashboard");
 
   return (
     <div style={{ padding: '20px', fontFamily: 'Inter, sans-serif', background: '#f8f9fa', minHeight: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ margin: 0, color: '#2c3e50' }}>🏨 Hospitalisation</h1>
         <div style={{ display: 'flex', background: 'white', padding: '5px', borderRadius: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-          <button onClick={() => setActiveTab("catalogue")} style={activeTab === "catalogue" ? tabActive : tabNormal}>🛠️ Catalogue & Tarifs</button>
-          <button onClick={() => setActiveTab("config_lits")} style={activeTab === "config_lits" ? tabActive : tabNormal}>🛏️ Gestion Lits</button>
-          <button onClick={() => setActiveTab("admissions")} style={activeTab === "admissions" ? tabActive : tabNormal}>👨‍⚕️ Admissions en cours</button>
+          <button onClick={() => setActiveTab("dashboard")} style={activeTab === "dashboard" ? tabActive : tabNormal}>📊 Tableau</button>
+          <button onClick={() => setActiveTab("catalogue")} style={activeTab === "catalogue" ? tabActive : tabNormal}>🛠️ Tarifs</button>
+          <button onClick={() => setActiveTab("config_lits")} style={activeTab === "config_lits" ? tabActive : tabNormal}>🛏️ Config</button>
+          <button onClick={() => setActiveTab("admissions")} style={activeTab === "admissions" ? tabActive : tabNormal}>👨‍⚕️ Dossiers</button>
           <button onClick={() => setActiveTab("archives")} style={activeTab === "archives" ? tabActive : tabNormal}>📚 Historique</button>
         </div>
       </div>
 
+      {activeTab === "dashboard" && <DashboardView setActiveTab={setActiveTab} />}
       {activeTab === "catalogue" && <CatalogueView />}
       {activeTab === "config_lits" && <ConfigLitsView />}
       {activeTab === "admissions" && <AdmissionsView />}
       {activeTab === "archives" && <ArchivesView />}
     </div>
   );
+}
+
+// --- SOUS-COMPOSANT : DASHBOARD ---
+function DashboardView({ setActiveTab }: { setActiveTab: (t: any) => void }) {
+  const [lits, setLits] = useState<any[]>([]);
+
+  useEffect(() => {
+    getDb().then(db => db.select<any[]>(`
+      SELECT l.*, c.nom as nom_chambre, a.id as admission_id, p.nom_prenoms 
+      FROM lits l 
+      LEFT JOIN chambres c ON l.chambre_id = c.id
+      LEFT JOIN admissions a ON l.id = a.lit_id AND a.statut = 'en_cours'
+      LEFT JOIN patients p ON a.patient_id = p.id
+      ORDER BY c.nom, l.nom_lit
+    `)).then(res => setLits(res));
+  }, []);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px' }}>
+      {lits.map(lit => (
+        <div key={lit.id}
+          onClick={() => setActiveTab("admissions")}
+          style={{
+            padding: '20px',
+            borderRadius: '15px',
+            background: lit.statut === 'occupe' ? '#FFF5F5' : '#F0FFF4',
+            color: lit.statut === 'occupe' ? '#C53030' : '#2F855A',
+            cursor: 'pointer',
+            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+            border: lit.statut === 'occupe' ? '2px solid #FC8181' : '2px solid #68D391',
+            textAlign: 'center'
+          }}>
+          <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>{lit.nom_chambre}</div>
+          <h2 style={{ margin: '10px 0', fontSize: '1.5rem' }}>{lit.nom_lit}</h2>
+          {lit.statut === 'occupe' ? (
+            <div>
+              <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>👤 {lit.nom_prenoms}</div>
+              <div style={{ fontSize: '0.8rem', marginTop: '5px', textDecoration: 'underline' }}>Voir Dossier &rarr;</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontWeight: 'bold' }}>✅ LIBRE</div>
+              <div style={{ fontSize: '0.8rem', marginTop: '5px' }}>+ Nouvelle Admission</div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 // --- SOUS-COMPOSANT : CATALOGUE (STYLE LABORATOIRE) ---
@@ -122,38 +175,43 @@ function CatalogueView() {
   );
 }
 
-// --- SOUS-COMPOSANT : ADMISSIONS (SUIVI SIMPLE) ---
+// --- SOUS-COMPOSANT : ADMISSIONS (Avec Dossier Médical) ---
 function AdmissionsView() {
   const [admissions, setAdmissions] = useState<any[]>([]);
-  const [showNew, setShowNew] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "new" | "details">("list");
+  const [selectedAdm, setSelectedAdm] = useState<any>(null);
 
-  // Form States
+  // Form New Admission
   const [patients, setPatients] = useState<any[]>([]);
-  const [catalog, setCatalog] = useState<any[]>([]);
-  const [lits, setLits] = useState<any[]>([]); // Pour garder retro-compatibilité si besoin, ou on simplifie
-
+  const [lits, setLits] = useState<any[]>([]);
   const [searchP, setSearchP] = useState("");
   const [patient, setPatient] = useState<any>(null);
-  const [selectedLitId, setSelectedLitId] = useState(""); // Si on garde la notion de lit
+  const [selectedLitId, setSelectedLitId] = useState("");
   const [nbJours, setNbJours] = useState(1);
-  const [services, setServices] = useState<{ id: number, libelle: string, prix: number, qte: number }[]>([]);
+  const [modeTarif, setModeTarif] = useState<"STANDARD" | "VENTILE">("STANDARD");
+  const [catalog, setCatalog] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>([]);
+
+  // Medical Notes
+  const [observations, setObservations] = useState<any[]>([]);
+  const [newNote, setNewNote] = useState("");
 
   const loadData = async () => {
     const db = await getDb();
     const resAdm = await db.select<any[]>(`
-            SELECT a.id, p.nom_prenoms, p.numero_carnet, l.nom_lit, a.date_entree, a.nb_jours 
+            SELECT a.*, p.nom_prenoms, p.numero_carnet, l.nom_lit, c.nom as nom_chambre
             FROM admissions a
             JOIN patients p ON a.patient_id = p.id
             LEFT JOIN lits l ON a.lit_id = l.id
+            LEFT JOIN chambres c ON l.chambre_id = c.id
             WHERE a.statut = 'en_cours'
+            ORDER BY a.date_entree DESC
         `);
     setAdmissions(resAdm);
 
-    // Preload for form
+    // Preload
     const resP = await db.select<any[]>("SELECT * FROM patients");
     setPatients(resP);
-    const resCat = await db.select<any[]>("SELECT * FROM prestations WHERE categorie = 'HOSPITALISATION'");
-    setCatalog(resCat);
     const resLits = await db.select<any[]>(`
         SELECT l.*, c.nom as nom_chambre 
         FROM lits l 
@@ -162,149 +220,228 @@ function AdmissionsView() {
         ORDER BY c.nom, l.nom_lit
     `);
     setLits(resLits);
+    const resCat = await db.select<any[]>("SELECT * FROM prestations WHERE categorie = 'HOSPITALISATION'");
+    setCatalog(resCat);
   };
 
   useEffect(() => { loadData(); }, []);
 
-  const toggleService = (item: any) => {
-    if (services.find(s => s.id === item.id)) {
-      setServices(prev => prev.filter(s => s.id !== item.id));
-    } else {
-      setServices(prev => [...prev, { id: item.id, libelle: item.libelle, prix: item.prix_standard, qte: 1 }]);
-    }
-  }
+  // --- DETAILS & OBSERVATIONS ---
+  const openDetails = async (adm: any) => {
+    setSelectedAdm(adm);
+    setViewMode("details");
+    loadObservations(adm.id);
+    loadServices(adm.id);
+  };
 
+  const loadObservations = async (admId: number) => {
+    const db = await getDb();
+    const obs = await db.select<any[]>("SELECT * FROM admission_observations WHERE admission_id = ? ORDER BY date_obs DESC", [admId]);
+    setObservations(obs);
+  };
+
+  const loadServices = async (admId: number) => {
+    const db = await getDb();
+    const srv = await db.select<any[]>("SELECT * FROM admission_prestations WHERE admission_id = ?", [admId]);
+    setServices(srv); // Reuse local state for display in details
+  };
+
+  const addObservation = async () => {
+    if (!newNote) return;
+    const db = await getDb();
+    await db.execute("INSERT INTO admission_observations (admission_id, note) VALUES (?, ?)", [selectedAdm.id, newNote]);
+    setNewNote("");
+    loadObservations(selectedAdm.id);
+  };
+
+  const addServiceToAdm = async (srv: any) => {
+    if (!confirm(`Ajouter ${srv.libelle} au dossier ?`)) return;
+    const db = await getDb();
+    await db.execute(
+      "INSERT INTO admission_prestations (admission_id, prestation_id, libelle, prix_unitaire, quantite) VALUES (?, ?, ?, ?, 1)",
+      [selectedAdm.id, srv.id, srv.libelle, srv.prix_standard]
+    );
+    loadServices(selectedAdm.id);
+  };
+
+  // --- NEW ADMISSION LOGIC ---
   const doAdmission = async () => {
     if (!patient || !selectedLitId) return alert("Patient et Lit requis");
     const db = await getDb();
-
     try {
-      // Créer admission
-      const res = await db.execute(
-        "INSERT INTO admissions (patient_id, lit_id, nb_jours, date_entree, statut) VALUES (?, ?, ?, CURDATE(), 'en_cours')",
-        [patient.id, selectedLitId, nbJours]
+      await db.execute(
+        "INSERT INTO admissions (patient_id, lit_id, nb_jours, date_entree, statut, mode_tarif) VALUES (?, ?, ?, CURDATE(), 'en_cours', ?)",
+        [patient.id, selectedLitId, nbJours, modeTarif]
       );
-      const admId = res.lastInsertId;
-
-      // Ajouter Services
-      for (const s of services) {
-        await db.execute(
-          "INSERT INTO admission_prestations (admission_id, prestation_id, libelle, prix_unitaire, quantite) VALUES (?, ?, ?, ?, ?)",
-          [admId, s.id, s.libelle, s.prix, s.qte]
-        );
-      }
-
-      // Marquer lit occupé
       await db.execute("UPDATE lits SET statut = 'occupe' WHERE id = ?", [selectedLitId]);
-
       alert("Admission enregistrée !");
-      setShowNew(false);
+      setViewMode("list");
       setPatient(null);
-      setServices([]);
       loadData();
-    } catch (e) {
-      console.error(e);
-      alert("Erreur");
-    }
+    } catch (e) { alert("Erreur: " + e); }
   };
 
   const liberer = async (adm: any) => {
-    if (!confirm(`Libérer ${adm.nom_prenoms} ?`)) return;
+    if (!confirm(`Libérer ${adm.nom_prenoms} ?\nCela clôturera le dossier.`)) return;
     const db = await getDb();
     await db.execute("UPDATE admissions SET statut = 'termine', date_sortie = CURDATE() WHERE id = ?", [adm.id]);
-    // Libérer lit (si on peut trouver l'id du lit depuis adm)
-    // Ici on fait une requete pour trouver le lit id car adm.lit_id n'est pas dans la liste affichée
-    const resLit = await db.select<any[]>("SELECT lit_id FROM admissions WHERE id = ?", [adm.id]);
-    if (resLit.length) {
-      await db.execute("UPDATE lits SET statut = 'disponible' WHERE id = ?", [resLit[0].lit_id]);
-    }
+    await db.execute("UPDATE lits SET statut = 'disponible' WHERE id = ?", [adm.lit_id]);
+    if (selectedAdm?.id === adm.id) setViewMode("list");
     loadData();
-  }
+  };
+
+  // Helper to check ventilated option
+  const selectedLitObj = lits.find(l => l.id == selectedLitId);
+  const canVentile = selectedLitObj && selectedLitObj.prix_ventile > 0;
 
   return (
-    <div style={cardStyle}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-        <h3>🛏️ Patients Hospitalisés ({admissions.length})</h3>
-        <button onClick={() => setShowNew(true)} style={btnPlus}>+ Nouvelle Admission</button>
+    <div style={{ display: 'flex', height: '80vh', gap: '20px' }}>
+
+      {/* LISTE GAUCHE */}
+      <div style={{ flex: 1, ...cardStyle, overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
+          <h3>📂 Dossiers ({admissions.length})</h3>
+          <button onClick={() => setViewMode("new")} style={btnPlus}>+ Nouveau</button>
+        </div>
+        <div>
+          {admissions.map(a => (
+            <div key={a.id} onClick={() => openDetails(a)} style={{
+              padding: '10px', borderBottom: '1px solid #eee', cursor: 'pointer',
+              background: selectedAdm?.id === a.id ? '#e8f6f3' : 'white'
+            }}>
+              <div style={{ fontWeight: 'bold' }}>{a.nom_prenoms}</div>
+              <div style={{ fontSize: '0.85rem', color: '#7f8c8d' }}>
+                {a.nom_chambre} - {a.nom_lit} | Entrée: {new Date(a.date_entree).toLocaleDateString()}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {showNew && (
-        <div style={{ background: '#ebf5fb', padding: '20px', borderRadius: '10px', marginBottom: '20px', border: '1px solid #3498db' }}>
-          <h4 style={{ marginTop: 0 }}>Nouvelle Admission</h4>
+      {/* CONTENU DROITE */}
+      <div style={{ flex: 2, ...cardStyle, overflowY: 'auto' }}>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
-            <div>
-              <label style={labelS}>Patient (Recherche Carnet/Nom)</label>
-              <input value={searchP} onChange={e => {
-                setSearchP(e.target.value);
-                const found = patients.find(p => p.numero_carnet === e.target.value || p.nom_prenoms.toLowerCase().includes(e.target.value.toLowerCase()));
-                setPatient(found || null);
-              }} style={inputStyle} placeholder="Tapez pour chercher..." />
-              {patient && <div style={{ color: 'green', fontWeight: 'bold' }}>✅ {patient.nom_prenoms}</div>}
-            </div>
-            <div>
-              <label style={labelS}>Lit / Chambre</label>
-              <select value={selectedLitId} onChange={e => setSelectedLitId(e.target.value)} style={inputStyle}>
-                <option value="">-- Choisir un lit libre --</option>
-                {lits.map(l => (
-                  <option key={l.id} value={l.id}>{l.nom_chambre} - {l.nom_lit}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={labelS}>Durée prévue (Jours)</label>
-              <input type="number" value={nbJours} onChange={e => setNbJours(parseInt(e.target.value))} style={inputStyle} min="1" />
-            </div>
+        {viewMode === "list" && (
+          <div style={{ textAlign: 'center', marginTop: '50px', color: '#999' }}>
+            <h2>👈 Sélectionnez un dossier ou créez une admission</h2>
           </div>
+        )}
 
-          <div style={{ marginBottom: '15px' }}>
-            <label style={labelS}>Services & Soins Initiaux</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-              {catalog.filter(c => !c.libelle.toLowerCase().includes('chambre')).map(c => {
-                const sel = services.find(s => s.id === c.id);
-                return (
-                  <div key={c.id} onClick={() => toggleService(c)} style={{
-                    padding: '5px 10px', borderRadius: '15px', border: '1px solid #ccc', cursor: 'pointer',
-                    background: sel ? '#3498db' : 'white', color: sel ? 'white' : '#333'
-                  }}>
-                    {c.libelle}
+        {viewMode === "new" && (
+          <div>
+            <h3>🏥 Nouvelle Hospitalisation</h3>
+            <div style={{ display: 'grid', gap: '15px', background: '#f9f9f9', padding: '20px', borderRadius: '10px' }}>
+              <div>
+                <label style={labelS}>Recherche Patient</label>
+                <input value={searchP} onChange={e => {
+                  setSearchP(e.target.value);
+                  const found = patients.find(p => p.numero_carnet === e.target.value || p.nom_prenoms.toLowerCase().includes(e.target.value.toLowerCase()));
+                  setPatient(found || null);
+                }} style={inputStyle} placeholder="Nom ou Numéro Carnet..." />
+                {patient && <div style={{ color: 'green', marginTop: '5px' }}>✅ {patient.nom_prenoms}</div>}
+              </div>
+
+              <div>
+                <label style={labelS}>Choix du Lit</label>
+                <select value={selectedLitId} onChange={e => setSelectedLitId(e.target.value)} style={inputStyle}>
+                  <option value="">-- Lit Disponible --</option>
+                  {lits.map(l => <option key={l.id} value={l.id}>{l.nom_chambre} - {l.nom_lit} ({l.prix_journalier} F)</option>)}
+                </select>
+              </div>
+
+              {canVentile && (
+                <div style={{ padding: '10px', background: '#fff3cd', border: '1px solid #f39c12', borderRadius: '5px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 'bold', color: '#d35400' }}>
+                    <input type="checkbox" checked={modeTarif === "VENTILE"} onChange={e => setModeTarif(e.target.checked ? "VENTILE" : "STANDARD")} />
+                    Option Ventilé (Économique)
+                  </label>
+                  <div style={{ fontSize: '0.8rem', marginLeft: '25px' }}>
+                    Prix Standard: {selectedLitObj.prix_journalier} F <br />
+                    Prix Ventilé: {selectedLitObj.prix_ventile} F
                   </div>
-                )
-              })}
+                </div>
+              )}
+
+              <div>
+                <label style={labelS}>Durée estimée (jours)</label>
+                <input type="number" value={nbJours} onChange={e => setNbJours(parseInt(e.target.value) || 1)} style={inputStyle} min="1" />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button onClick={doAdmission} style={btnSave}>Valider Entrée</button>
+                <button onClick={() => setViewMode("list")} style={btnCancel}>Annuler</button>
+              </div>
             </div>
           </div>
+        )}
 
-          <div style={{ textAlign: 'right' }}>
-            <button onClick={() => setShowNew(false)} style={{ ...btnCancel, marginRight: '10px' }}>Annuler</button>
-            <button onClick={doAdmission} style={btnSave}>Valider Admission</button>
+        {viewMode === "details" && selectedAdm && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ margin: 0 }}>{selectedAdm.nom_prenoms}</h2>
+                <div style={{ color: '#7f8c8d' }}>
+                  {selectedAdm.nom_chambre} - {selectedAdm.nom_lit} &bull;
+                  <span style={{ marginLeft: '10px', background: '#eee', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>
+                    Tarif: {selectedAdm.mode_tarif || 'STANDARD'}
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => liberer(selectedAdm)} style={btnDelete}>Sortie / Libérer</button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+              {/* DOSSIER MEDICAL / OBSERVATIONS */}
+              <div>
+                <h4 style={{ background: '#3498db', color: 'white', padding: '10px', borderRadius: '5px', margin: 0 }}>📝 Suivi Médical</h4>
+                <div style={{ border: '1px solid #ddd', padding: '10px', height: '300px', overflowY: 'auto', background: '#fff' }}>
+                  {observations.map(obs => (
+                    <div key={obs.id} style={{ marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '5px' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#999' }}>{new Date(obs.date_obs).toLocaleString()}</div>
+                      <div style={{ whiteSpace: 'pre-wrap' }}>{obs.note}</div>
+                    </div>
+                  ))}
+                  {observations.length === 0 && <div style={{ color: '#ccc', textAlign: 'center', marginTop: '50px' }}>Aucune note.</div>}
+                </div>
+                <div style={{ marginTop: '10px', display: 'flex', gap: '5px' }}>
+                  <textarea
+                    value={newNote} onChange={e => setNewNote(e.target.value)}
+                    placeholder="Nouvelle observation..."
+                    style={{ ...inputStyle, height: '60px' }}
+                  />
+                  <button onClick={addObservation} style={btnPlus}>Ajouter</button>
+                </div>
+              </div>
+
+              {/* PRESTATIONS / SOINS */}
+              <div>
+                <h4 style={{ background: '#27ae60', color: 'white', padding: '10px', borderRadius: '5px', margin: 0 }}>💊 Soins & Services</h4>
+                <div style={{ border: '1px solid #ddd', padding: '10px', height: '300px', overflowY: 'auto', background: '#fff' }}>
+                  {services.map(s => (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #eee' }}>
+                      <span>{s.libelle}</span>
+                      <span style={{ fontWeight: 'bold' }}>{s.quantite}</span>
+                    </div>
+                  ))}
+
+                  <div style={{ marginTop: '20px', borderTop: '2px dashed #eee', paddingTop: '10px' }}>
+                    <label style={labelS}>Ajouter un soin :</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                      {catalog.filter(c => !c.libelle.toLowerCase().includes('chambre') && !c.libelle.toLowerCase().includes('ami') && !c.libelle.toLowerCase().includes('visitem')).slice(0, 10).map(c => (
+                        <button key={c.id} onClick={() => addServiceToAdm(c)} style={{ ...btnText, background: '#f0f0f0', padding: '5px 10px', borderRadius: '15px' }}>
+                          + {c.libelle}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
-
-      <table style={tableStyle}>
-        <thead>
-          <tr style={{ background: '#2c3e50', color: 'white' }}>
-            <th style={tdStyle}>Patient</th>
-            <th style={tdStyle}>Chambre</th>
-            <th style={tdStyle}>Entrée</th>
-            <th style={tdStyle}>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {admissions.map(a => (
-            <tr key={a.id} style={{ borderBottom: '1px solid #eee' }}>
-              <td style={tdStyle}><strong>{a.nom_prenoms}</strong><br /><small>{a.numero_carnet}</small></td>
-              <td style={tdStyle}>{a.nom_lit}</td>
-              <td style={tdStyle}>{new Date(a.date_entree).toLocaleDateString()}</td>
-              <td style={tdStyle}>
-                <button onClick={() => liberer(a)} style={btnDelete}>Libérer</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        )}
+      </div>
     </div>
-  )
+  );
 }
 
 function ArchivesView() {
@@ -349,6 +486,9 @@ function ConfigLitsView() {
   const [newLit, setNewLit] = useState("");
   const [selectedChambre, setSelectedChambre] = useState("");
   const [newLitPrix, setNewLitPrix] = useState<number>(0);
+  const [newLitPrixAssur, setNewLitPrixAssur] = useState<number>(0);
+  const [newLitPrixVentile, setNewLitPrixVentile] = useState<number>(0);
+  const [newLitPrixVentileAssur, setNewLitPrixVentileAssur] = useState<number>(0);
 
   const loadData = async () => {
     const db = await getDb();
@@ -387,11 +527,21 @@ function ConfigLitsView() {
     try {
       const db = await getDb();
       await db.execute(
-        "INSERT INTO lits (nom_lit, chambre_id, statut, prix_journalier) VALUES (?, ?, 'disponible', ?)",
-        [newLit, selectedChambre, newLitPrix]
+        `INSERT INTO lits 
+        (nom_lit, chambre_id, statut, prix_journalier, prix_assurance, prix_ventile, prix_ventile_assurance) 
+        VALUES (?, ?, 'disponible', ?, ?, ?, ?)`,
+        [
+          newLit, selectedChambre, newLitPrix,
+          newLitPrixAssur || newLitPrix,
+          newLitPrixVentile || null,
+          newLitPrixVentileAssur || null
+        ]
       );
       setNewLit("");
       setNewLitPrix(0);
+      setNewLitPrixAssur(0);
+      setNewLitPrixVentile(0);
+      setNewLitPrixVentileAssur(0);
       loadData();
     } catch (e) { alert("Erreur ajout lit: " + e); }
   };
@@ -400,7 +550,7 @@ function ConfigLitsView() {
     if (!confirm("Supprimer cette chambre ? Cela supprimera aussi les lits associés.")) return;
     try {
       const db = await getDb();
-      await db.execute("DELETE FROM lits WHERE chambre_id = ?", [id]); // Cascade manually if needed
+      await db.execute("DELETE FROM lits WHERE chambre_id = ?", [id]);
       await db.execute("DELETE FROM chambres WHERE id = ?", [id]);
       loadData();
     } catch (e) { alert("Erreur suppression: " + e); }
@@ -415,70 +565,14 @@ function ConfigLitsView() {
     } catch (e) { alert("Erreur suppression lit: " + e); }
   };
 
-  const importerDepuisCatalogue = async () => {
-    if (!confirm("⚠️ Cette action va analyser le Catalogue pour créer automatiquement les Chambres et Lits.\n\nConfirmer ?")) return;
-
-    try {
-      const db = await getDb();
-      const catalogue = await db.select<any[]>("SELECT * FROM prestations WHERE categorie = 'HOSPITALISATION' AND libelle LIKE '%Chambre%'");
-
-      if (catalogue.length === 0) return alert("Aucune 'Chambre' trouvée dans le catalogue.");
-
-      let countC = 0;
-      let countL = 0;
-
-      for (const item of catalogue) {
-        // Check if exists
-        const existing = await db.select<any[]>("SELECT id FROM chambres WHERE nom = ?", [item.libelle]);
-        let chambreId;
-
-        if (existing.length > 0) {
-          chambreId = existing[0].id; // Use existing
-        } else {
-          // Create Room
-          const res = await db.execute("INSERT INTO chambres (nom) VALUES (?)", [item.libelle]);
-          chambreId = res.lastInsertId;
-          countC++;
-        }
-
-        // Determine nb beds
-        const name = item.libelle.toLowerCase();
-        let nbLits = 1;
-        if (name.includes("double")) nbLits = 2;
-        else if (name.includes("triple")) nbLits = 3;
-        else if (name.includes("quadruple")) nbLits = 4;
-
-        // Create Beds if they don't exist
-        for (let i = 1; i <= nbLits; i++) {
-          const litName = `Lit ${i}`;
-          const existLit = await db.select<any[]>("SELECT id FROM lits WHERE chambre_id = ? AND nom_lit = ?", [chambreId, litName]);
-
-          if (existLit.length === 0) {
-            await db.execute(
-              "INSERT INTO lits (nom_lit, chambre_id, statut, prix_journalier) VALUES (?, ?, 'disponible', ?)",
-              [litName, chambreId, item.prix_standard]
-            );
-            countL++;
-          }
-        }
-      }
-
-      loadData();
-      alert(`✅ Importation terminée !\n\n🏠 ${countC} Chambres créées\n🛏️ ${countL} Lits ajoutés`);
-
-    } catch (e) { console.error(e); alert("Erreur import: " + e); }
-  };
-
   return (
     <div style={cardStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
         <h3 style={{ margin: 0 }}>⚙️ Configuration des Lits</h3>
-        <button onClick={importerDepuisCatalogue} style={{ background: '#8e44ad', color: 'white', border: 'none', padding: '10px 15px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
-          🪄 Générer depuis le Catalogue
-        </button>
+
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '20px' }}>
 
         {/* GESTION CHAMBRES */}
         <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '10px' }}>
@@ -504,35 +598,42 @@ function ConfigLitsView() {
 
         {/* GESTION LITS */}
         <div>
-          <h4 style={{ marginTop: 0 }}>🛏️ Lits Physiques</h4>
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center' }}>
+          <h4 style={{ marginTop: 0 }}>🛏️ Lits Physiques & Tarifs</h4>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '5px', alignItems: 'center' }}>
             <select value={selectedChambre} onChange={e => setSelectedChambre(e.target.value)} style={{ ...inputStyle, width: '200px' }}>
               <option value="">Sélectionner Chambre...</option>
               {chambres.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
             </select>
-            <input
-              placeholder="Nom/Numéro Lit..."
-              value={newLit}
-              onChange={e => setNewLit(e.target.value)}
-              style={inputStyle}
-            />
-            <input
-              type="number"
-              placeholder="Prix/J"
-              value={newLitPrix}
-              onChange={e => setNewLitPrix(parseInt(e.target.value))}
-              style={{ ...inputStyle, width: '100px' }}
-            />
-            <button onClick={addLit} style={btnPlus}>Ajouter Lit</button>
+            <input placeholder="Nom Lit (ex: Lit 1)" value={newLit} onChange={e => setNewLit(e.target.value)} style={inputStyle} />
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px', marginBottom: '10px', background: '#eef', padding: '10px', borderRadius: '8px' }}>
+            <div>
+              <label style={labelS}>Prix Standard (Clim)</label>
+              <input type="number" placeholder="Standard" value={newLitPrix || ""} onChange={e => setNewLitPrix(Number(e.target.value))} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelS}>Prix Assurance (Clim)</label>
+              <input type="number" placeholder="Assurance" value={newLitPrixAssur || ""} onChange={e => setNewLitPrixAssur(Number(e.target.value))} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelS}>Prix Ventilé (Option)</label>
+              <input type="number" placeholder="Ventilé" value={newLitPrixVentile || ""} onChange={e => setNewLitPrixVentile(Number(e.target.value))} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelS}>Prix Ventilé Assur</label>
+              <input type="number" placeholder="Ventilé Assur" value={newLitPrixVentileAssur || ""} onChange={e => setNewLitPrixVentileAssur(Number(e.target.value))} style={inputStyle} />
+            </div>
+          </div>
+          <button onClick={addLit} style={{ ...btnPlus, width: '100%', marginBottom: '15px' }}>Ajouter Nouveau Lit</button>
 
           <table style={tableStyle}>
             <thead>
               <tr style={{ background: '#ecf0f1' }}>
                 <th style={tdStyle}>Lit</th>
                 <th style={tdStyle}>Chambre</th>
-                <th style={tdStyle}>Prix / J</th>
-                <th style={tdStyle}>Statut</th>
+                <th style={tdStyle}>Prix Std / Assur</th>
+                <th style={tdStyle}>Ventilé Std / Assur</th>
                 <th style={tdStyle}>Actions</th>
               </tr>
             </thead>
@@ -541,15 +642,17 @@ function ConfigLitsView() {
                 <tr key={l.id} style={{ borderBottom: '1px solid #eee' }}>
                   <td style={tdStyle}><strong>{l.nom_lit}</strong></td>
                   <td style={tdStyle}>{l.nom_chambre}</td>
-                  <td style={tdStyle}><strong>{Number(l.prix_journalier || 0).toLocaleString()} F</strong></td>
                   <td style={tdStyle}>
-                    <span style={{
-                      padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold',
-                      background: l.statut === 'occupe' ? '#fadbd8' : '#d5f5e3',
-                      color: l.statut === 'occupe' ? '#c0392b' : '#27ae60'
-                    }}>
-                      {l.statut?.toUpperCase()}
-                    </span>
+                    <div>{Number(l.prix_journalier || 0).toLocaleString()} F</div>
+                    <div style={{ color: '#3498db', fontSize: '0.8rem' }}>{Number(l.prix_assurance || l.prix_journalier).toLocaleString()} F</div>
+                  </td>
+                  <td style={tdStyle}>
+                    {l.prix_ventile ? (
+                      <>
+                        <div>{Number(l.prix_ventile).toLocaleString()} F</div>
+                        <div style={{ color: '#3498db', fontSize: '0.8rem' }}>{Number(l.prix_ventile_assurance || l.prix_ventile).toLocaleString()} F</div>
+                      </>
+                    ) : <span style={{ color: '#ccc' }}>-</span>}
                   </td>
                   <td style={tdStyle}>
                     <button onClick={() => deleteLit(l.id)} style={btnDelete}>🗑️</button>
@@ -568,8 +671,12 @@ function ConfigLitsView() {
 const cardStyle: CSSProperties = { background: 'white', padding: '20px', borderRadius: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' };
 const inputStyle: CSSProperties = { width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd', boxSizing: 'border-box' };
 const labelS: CSSProperties = { fontSize: '11px', fontWeight: 'bold', color: '#7f8c8d', display: 'block', marginBottom: '5px' };
-const tabNormal: CSSProperties = { padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', color: '#7f8c8d', fontWeight: '500', marginRight: '5px' };
-const tabActive: CSSProperties = { ...tabNormal, color: '#3498db', borderBottom: '2px solid #3498db', fontWeight: 'bold', background: '#f8f9fa' };
+
+// Fix: Avoid mixing 'border' shorthand and 'borderBottom' in React styles.
+const tabBase: CSSProperties = { padding: '10px 20px', cursor: 'pointer', marginRight: '5px', background: 'none' };
+const tabNormal: CSSProperties = { ...tabBase, border: 'none', borderBottom: '2px solid transparent', color: '#7f8c8d', fontWeight: '500' };
+const tabActive: CSSProperties = { ...tabBase, border: 'none', borderBottom: '2px solid #3498db', color: '#3498db', fontWeight: 'bold', background: '#f8f9fa' };
+
 const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', marginTop: '10px' };
 const tdStyle: CSSProperties = { padding: '12px', textAlign: 'left' };
 const btnPlus: CSSProperties = { background: '#3498db', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' };
@@ -577,3 +684,4 @@ const btnSave: CSSProperties = { background: '#27ae60', color: 'white', border: 
 const btnCancel: CSSProperties = { background: '#95a5a6', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' };
 const btnEdit: CSSProperties = { background: '#f1c40f', color: '#333', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px' };
 const btnDelete: CSSProperties = { background: '#e74c3c', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' };
+const btnText: CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem', color: '#3498db', fontWeight: 'bold' };

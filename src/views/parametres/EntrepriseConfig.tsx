@@ -61,6 +61,13 @@ export default function EntrepriseConfig() {
   };
 
   const enregistrer = async () => {
+    if (!entreprise.nom_entreprise) {
+      alert("⚠️ Le nom de l'entreprise est obligatoire.");
+      return;
+    }
+
+
+
     setLoading(true);
     try {
       const db = await getDb();
@@ -104,7 +111,7 @@ export default function EntrepriseConfig() {
       alert("✅ Informations de l'entreprise enregistrées avec succès !");
     } catch (e) {
       console.error("Erreur enregistrement:", e);
-      alert("❌ Erreur lors de l'enregistrement");
+      alert("❌ Erreur lors de l'enregistrement : " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setLoading(false);
     }

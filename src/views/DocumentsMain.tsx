@@ -227,8 +227,8 @@ function ReportMouvements({ onBack }: { onBack: () => void }) {
                 <button onClick={loadData} disabled={loading} style={btnActionStyle}>{loading ? 'Chargement...' : 'Générer Rapport'}</button>
                 {data.length > 0 && (
                     <>
-                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>📄 PDF</button>
-                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel</button>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
                     </>
                 )}
             </div>
@@ -303,6 +303,18 @@ function ReportInvendus({ onBack }: { onBack: () => void }) {
         );
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Article", "Stock Actuel", "Valeur Stock"],
+            ...data.map(r => [r.designation, r.stock, r.stock * r.prix_achat])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "Invendus");
+        XLSX.writeFile(wb, `Invendus_${dates.start}_${dates.end}.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -314,7 +326,12 @@ function ReportInvendus({ onBack }: { onBack: () => void }) {
                 <label>Période du : <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} style={inputStyle} /></label>
                 <label>Au : <input type="date" value={dates.end} onChange={e => setDates({ ...dates, end: e.target.value })} style={inputStyle} /></label>
                 <button onClick={loadData} disabled={loading} style={{ ...btnActionStyle, background: '#e74c3c' }}>{loading ? 'Recherche...' : 'Lister Invendus'}</button>
-                {data.length > 0 && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                {data.length > 0 && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                    </>
+                )}
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -421,6 +438,18 @@ function ReportBestSellers({ onBack }: { onBack: () => void }) {
         );
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Rang", "Article", "Quantité Vendue", "Chiffre d'Affaires", "Marge", "% Marge"],
+            ...data.map((r, i) => [i + 1, r.name, r.qty, r.revenue, r.margin, r.marginRate.toFixed(2)])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "BestSellers");
+        XLSX.writeFile(wb, `BestSellers_${dates.start}_${dates.end}.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -439,7 +468,12 @@ function ReportBestSellers({ onBack }: { onBack: () => void }) {
                 </select>
 
                 <button onClick={loadData} disabled={loading} style={{ ...btnActionStyle, background: '#f39c12' }}>{loading ? 'Calcul...' : 'Afficher Top 50'}</button>
-                {data.length > 0 && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                {data.length > 0 && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                    </>
+                )}
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -537,6 +571,23 @@ function ReportInstantStock({ onBack }: { onBack: () => void }) {
         );
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+
+        const filtered = filterRayon ? data.filter(r => r.rayon === filterRayon) : data;
+        const totalVal = filtered.reduce((acc, r) => acc + (r.stock * r.prix_achat), 0);
+
+        const wsData = [
+            ["Rayon", "Article", "Stock Physique", "Valeur Stock"],
+            ...filtered.map(r => [r.rayon || 'Non classé', r.designation, r.stock, r.stock * r.prix_achat]),
+            ["", "TOTAL", "", totalVal]
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "InstantStock");
+        XLSX.writeFile(wb, `InstantStock.xlsx`);
+    };
+
     const filteredData = filterRayon ? data.filter(r => r.rayon === filterRayon) : data;
     const totalVal = filteredData.reduce((acc, r) => acc + (r.stock * r.prix_achat), 0);
 
@@ -556,7 +607,8 @@ function ReportInstantStock({ onBack }: { onBack: () => void }) {
                 <div style={{ marginLeft: 'auto', fontWeight: 'bold', color: '#2c3e50', fontSize: '14px' }}>
                     {loading ? 'Chargement...' : `Valeur Totale : ${totalVal.toLocaleString()} F`}
                 </div>
-                <button onClick={handlePrint} disabled={loading} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>
+                <button onClick={handlePrint} disabled={loading} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                <button onClick={exportToExcel} disabled={loading} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
             </div>
 
             <div style={{ maxHeight: 'calc(100vh - 250px)', overflowY: 'auto', border: '1px solid #eee' }}>
@@ -585,7 +637,7 @@ function ReportInstantStock({ onBack }: { onBack: () => void }) {
     );
 }
 
-// 5. Revenue by Operator (Accounting)
+// 5. Revenue by Operator AND Mode (Accounting)
 function ReportRevenueByOperator({ onBack }: { onBack: () => void }) {
     const [dates, setDates] = useState({ start: new Date().toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
     const [data, setData] = useState<any[]>([]);
@@ -596,43 +648,150 @@ function ReportRevenueByOperator({ onBack }: { onBack: () => void }) {
         try {
             const db = await getDb();
 
-            // Fix eventual schema mismatch (Lazy Migration for old DBs)
+            // Fix eventual schema mismatch
             try { await db.execute("ALTER TABLE ventes ADD COLUMN part_patient DOUBLE DEFAULT 0"); } catch (e) { }
             try { await db.execute("UPDATE ventes SET part_patient = montant_total WHERE part_patient = 0"); } catch (e) { }
 
-            // Aggregate per user: Sales (Cash), Encaissements (Recouvrement Cash), Decaissements, Versements
-            // Note: We use 8 params for dates because we have 4 subqueries using date range
-            const res = await db.select<any[]>(`
+            // 1. Get List of Users
+            const users = await db.select<any[]>("SELECT id, nom_complet, username FROM app_utilisateurs ORDER BY nom_complet");
+
+            // 2. Get Sales Statistics (Grouped by User & Mode)
+            // CA (Turnover) = part_patient
+            // Recette (Cash In) = part_patient - reste_a_payer
+            const salesRaw = await db.select<any[]>(`
                 SELECT 
-                    u.id, 
-                    u.nom_complet as name,
-                    CAST((SELECT COALESCE(SUM(part_patient),0) FROM ventes v WHERE v.user_id = u.id AND DATE(v.date_vente) BETWEEN ? AND ? AND (v.mode_paiement LIKE 'ESP%CE' OR v.mode_paiement = 'ESPECES')) AS CHAR) as sales_cash,
-                    CAST((SELECT COALESCE(SUM(montant),0) FROM caisse_mouvements cm WHERE cm.user_id = u.id AND DATE(cm.date_mouvement) BETWEEN ? AND ? AND cm.type IN ('ENCAISSEMENT_RECOUVREMENT') AND cm.mode_paiement LIKE 'ESP%CES') AS CHAR) as collections,
-                    CAST((SELECT COALESCE(SUM(montant),0) FROM caisse_mouvements cm WHERE cm.user_id = u.id AND DATE(cm.date_mouvement) BETWEEN ? AND ? AND cm.type = 'DECAISSEMENT') AS CHAR) as decaissements,
-                    CAST((SELECT COALESCE(SUM(montant),0) FROM caisse_mouvements cm WHERE cm.user_id = u.id AND DATE(cm.date_mouvement) BETWEEN ? AND ? AND cm.type = 'VERSEMENT') AS CHAR) as versements
-                FROM app_utilisateurs u
-                ORDER BY u.nom_complet
-            `, [dates.start, dates.end, dates.start, dates.end, dates.start, dates.end, dates.start, dates.end]);
+                    user_id, 
+                    mode_paiement, 
+                    SUM(part_patient) as ca_total,
+                    SUM(part_patient - reste_a_payer) as recette_reelle
+                FROM ventes 
+                WHERE DATE(date_vente) BETWEEN ? AND ?
+                GROUP BY user_id, mode_paiement
+            `, [dates.start, dates.end]);
 
-            // Filter out users with no activity
-            const activeUsers = res.map(r => ({
-                ...r,
-                sales_cash: parseFloat(r.sales_cash || "0"),
-                collections: parseFloat(r.collections || "0"),
-                decaissements: parseFloat(r.decaissements || "0"),
-                versements: parseFloat(r.versements || "0")
-            })).filter(r => r.sales_cash > 0 || r.collections > 0 || r.decaissements > 0 || r.versements > 0)
-                .map(r => {
-                    const solde_theorique = (r.sales_cash + r.collections) - r.decaissements;
-                    return {
-                        ...r,
-                        total_in: r.sales_cash + r.collections,
-                        solde: solde_theorique,
-                        ecart: solde_theorique - r.versements
-                    };
+            // 3. Get Recoveries (Encaissements) - ALWAYS CASH IN
+            const recoveriesRaw = await db.select<any[]>(`
+                SELECT user_id, mode_paiement, SUM(montant) as collected
+                FROM caisse_mouvements 
+                WHERE type IN ('ENCAISSEMENT_RECOUVREMENT', 'RECOUVREMENT')
+                AND DATE(date_mouvement) BETWEEN ? AND ?
+                GROUP BY user_id, mode_paiement
+            `, [dates.start, dates.end]);
+
+            // 4. Get Decaissements
+            const decaissementsRaw = await db.select<any[]>(`
+                SELECT user_id, mode_paiement, SUM(montant) as total
+                FROM caisse_mouvements 
+                WHERE type = 'DECAISSEMENT'
+                AND DATE(date_mouvement) BETWEEN ? AND ?
+                GROUP BY user_id, mode_paiement
+            `, [dates.start, dates.end]);
+
+            // 5. Get Versements
+            const versementsRaw = await db.select<any[]>(`
+                SELECT user_id, mode_paiement, SUM(montant) as total
+                FROM caisse_mouvements 
+                WHERE type = 'VERSEMENT'
+                AND DATE(date_mouvement) BETWEEN ? AND ?
+                GROUP BY user_id, mode_paiement
+            `, [dates.start, dates.end]);
+
+            // 6. Aggregate Data (First Pass)
+            let rawRows: any[] = [];
+
+            users.forEach(u => {
+                const userName = u.nom_complet || u.username || 'Inconnu';
+                const userModes = new Set<string>();
+
+                salesRaw.filter(r => r.user_id === u.id).forEach(r => userModes.add(r.mode_paiement));
+                recoveriesRaw.filter(r => r.user_id === u.id).forEach(r => userModes.add(r.mode_paiement));
+                decaissementsRaw.filter(r => r.user_id === u.id).forEach(r => userModes.add(r.mode_paiement));
+                versementsRaw.filter(r => r.user_id === u.id).forEach(r => userModes.add(r.mode_paiement || 'ESPÈCES'));
+
+                if (userModes.size === 0) return;
+
+                userModes.forEach(mode => {
+                    const originalMode = mode || 'INCONNU';
+
+                    // Sales
+                    const s = salesRaw.find(r => r.user_id === u.id && r.mode_paiement === mode);
+                    const caVal = s ? s.ca_total : 0;
+                    const recetteVenteVal = s ? s.recette_reelle : 0;
+
+                    // Recoveries
+                    const r = recoveriesRaw.find(r => r.user_id === u.id && r.mode_paiement === mode);
+                    const recovVal = r ? r.collected : 0;
+
+                    const totalEncaisse = recetteVenteVal + recovVal;
+
+                    // Decaissements
+                    const d = decaissementsRaw.find(r => r.user_id === u.id && r.mode_paiement === mode);
+                    const decVal = d ? d.total : 0;
+
+                    // Versements
+                    const v = versementsRaw.find(r => r.user_id === u.id && (r.mode_paiement === mode || (!r.mode_paiement && mode.includes('ESP'))));
+                    const versVal = v ? v.total : 0;
+
+                    // UPDATED LOGIC: Filter out rows that have NO cash movement (Entrants/Sortants)
+                    // The user wants "Entrants" (Receipts). Pure credit sales (Encaissements=0) must be hidden.
+                    // We keep if there is any Encaissement OR Decaissement OR Versement.
+                    if (totalEncaisse === 0 && decVal === 0 && versVal === 0) return;
+
+                    let displayMode = originalMode;
+
+                    rawRows.push({
+                        userId: u.id,
+                        userName: userName,
+                        mode: displayMode,
+                        ca: caVal,
+                        encaissements: totalEncaisse,
+                        decaissements: decVal,
+                        versements: versVal
+                    });
                 });
+            });
 
-            setData(activeUsers);
+            // 7. Aggregate Second Pass (Merge lines that now share the same label, e.g. "CRÉDIT")
+            const finalMap: Record<string, any> = {};
+
+            rawRows.forEach(row => {
+                const key = `${row.userId}_${row.mode}`;
+                if (!finalMap[key]) {
+                    finalMap[key] = {
+                        userId: row.userId,
+                        userName: row.userName,
+                        mode: row.mode,
+                        ca: 0,
+                        encaissements: 0,
+                        decaissements: 0,
+                        versements: 0
+                    };
+                }
+                const target = finalMap[key];
+                target.ca += row.ca;
+                target.encaissements += row.encaissements;
+                target.decaissements += row.decaissements;
+                target.versements += row.versements;
+            });
+
+            // 8. Convert to Array & Calc Solde
+            const finalRows = Object.values(finalMap).map(r => {
+                const solde = r.encaissements - r.decaissements;
+                return {
+                    ...r,
+                    solde: solde,
+                    ecart: solde - r.versements
+                };
+            });
+
+            // Sort
+            finalRows.sort((a, b) => {
+                if (a.userName === b.userName) return a.mode.localeCompare(b.mode);
+                return a.userName.localeCompare(b.userName);
+            });
+
+            setData(finalRows);
+
         } catch (e) {
             console.error(e);
             alert("Erreur chargement rapport: " + (e as any).message);
@@ -643,69 +802,92 @@ function ReportRevenueByOperator({ onBack }: { onBack: () => void }) {
 
     const handlePrint = () => {
         if (data.length === 0) return alert("Aucune donnée à imprimer");
+        const totalCA = data.reduce((acc, r) => acc + r.ca, 0);
         const totalSolde = data.reduce((acc, r) => acc + r.solde, 0);
-        const totalEcart = data.reduce((acc, r) => acc + r.ecart, 0);
 
         printReport(
-            'Récapitulatif des Recettes par Opérateur',
+            'Récapitulatif Détaillé des Recettes',
             dates,
-            ['Opérateur', 'Entrées (Cash)', 'Décaissements', 'Solde Théorique', 'Versements', 'Ecart / Reste'],
-            `Solde Théorique Total: ${totalSolde.toLocaleString()} F | Ecart Total: ${totalEcart.toLocaleString()} F`,
+            ['Opérateur', 'Mode', 'CA (Ventes)', 'Encaissements', 'Sorties', 'Solde Théorique', 'Versements', 'Ecart'],
+            `CA Total: ${totalCA.toLocaleString()} F | Solde Théorique: ${totalSolde.toLocaleString()} F`,
             data,
             (r) => `
                 <tr>
-                    <td style="font-weight:bold">${r.name}</td>
-                    <td style="text-align:right; color:#27ae60">${r.total_in.toLocaleString()}</td>
+                    <td style="font-weight:bold">${r.userName}</td>
+                    <td style="font-size:11px">${r.mode}</td>
+                    <td style="text-align:right; font-weight:bold;">${r.ca.toLocaleString()}</td>
+                    <td style="text-align:right; color:#27ae60">${r.encaissements.toLocaleString()}</td>
                     <td style="text-align:right; color:#c0392b">${r.decaissements.toLocaleString()}</td>
                     <td style="text-align:right; font-weight:bold; background:#f4f6f7">${r.solde.toLocaleString()}</td>
-                    <td style="text-align:right; color:#2980b9; font-weight:bold">${r.versements.toLocaleString()}</td>
+                    <td style="text-align:right; color:#2980b9">${r.versements.toLocaleString()}</td>
                     <td style="text-align:right; font-weight:bold; color:${r.ecart > 0 ? '#e74c3c' : '#27ae60'}">${r.ecart.toLocaleString()} F</td>
                 </tr>
             `
         );
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Opérateur", "Mode", "CA (Ventes)", "Encaissements", "Sorties", "Solde Théorique", "Versements", "Ecart / Reste"],
+            ...data.map(r => [r.userName, r.mode, r.ca, r.encaissements, r.decaissements, r.solde, r.versements, r.ecart])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "Recettes");
+        XLSX.writeFile(wb, `Recettes_${dates.start}_${dates.end}.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
                 <button onClick={onBack} style={btnBackStyle}>⬅ Retour</button>
-                <h2 style={{ margin: 0, color: '#27ae60' }}>💰 Recettes par Opérateur</h2>
+                <h2 style={{ margin: 0, color: '#27ae60' }}>💰 Recettes par Opérateur & Mode</h2>
             </div>
 
             <div style={{ background: '#e8f8f5', padding: '15px', borderRadius: '8px', display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '20px', border: '1px solid #d1f2eb' }}>
                 <label>Période du : <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} style={inputStyle} /></label>
                 <label>Au : <input type="date" value={dates.end} onChange={e => setDates({ ...dates, end: e.target.value })} style={inputStyle} /></label>
                 <button onClick={loadData} disabled={loading} style={{ ...btnActionStyle, background: '#27ae60' }}>{loading ? 'Calcul...' : 'Afficher Recettes'}</button>
-                {data.length > 0 && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                {data.length > 0 && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                    </>
+                )}
             </div>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                     <tr style={{ background: '#16a085', color: 'white' }}>
                         <th style={thStyle}>Opérateur</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Entrées (Cash)</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Décaissements</th>
+                        <th style={thStyle}>Mode Paiement</th>
+                        <th style={{ ...thStyle, textAlign: 'right', background: '#14967c' }}>CA (Ventes)</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>Encaissements</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>Sorties</th>
                         <th style={{ ...thStyle, textAlign: 'right', background: '#1abc9c' }}>Solde Théorique</th>
                         <th style={{ ...thStyle, textAlign: 'right' }}>Versements</th>
                         <th style={{ ...thStyle, textAlign: 'right' }}>Ecart / Reste</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {data.map(r => (
-                        <tr key={r.id} style={{ borderBottom: '1px solid #eee' }}>
+                    {data.map((r, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
                             <td style={tdStyle}>
-                                <div style={{ fontWeight: 'bold', color: '#2c3e50' }}>{r.name}</div>
+                                <div style={{ fontWeight: 'bold', color: '#2c3e50' }}>{r.userName}</div>
                             </td>
-                            <td style={{ ...tdStyle, textAlign: 'right', color: '#27ae60' }}>{(r.total_in || 0).toLocaleString()} F</td>
+                            <td style={{ ...tdStyle, color: '#555', fontSize: '12px' }}>{r.mode}</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>{(r.ca || 0).toLocaleString()} F</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', color: '#27ae60' }}>{(r.encaissements || 0).toLocaleString()} F</td>
                             <td style={{ ...tdStyle, textAlign: 'right', color: '#c0392b' }}>{(r.decaissements || 0).toLocaleString()} F</td>
                             <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', background: '#f8f9fa' }}>{(r.solde || 0).toLocaleString()} F</td>
                             <td style={{ ...tdStyle, textAlign: 'right', color: '#2980b9', fontWeight: 'bold' }}>{(r.versements || 0).toLocaleString()} F</td>
-                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', fontSize: '15px', color: (r.ecart || 0) > 0 ? '#e74c3c' : '#27ae60' }}>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: (r.ecart || 0) > 0 ? '#e74c3c' : '#27ae60' }}>
                                 {(r.ecart || 0).toLocaleString()} F
                             </td>
                         </tr>
                     ))}
-                    {data.length === 0 && !loading && <tr><td colSpan={6} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>Aucune activité trouvée sur cette période</td></tr>}
+                    {data.length === 0 && !loading && <tr><td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>Aucune activité trouvée sur cette période</td></tr>}
                 </tbody>
             </table>
         </div>
@@ -834,6 +1016,18 @@ function ReportAccountsReceivable({ onBack }: { onBack: () => void }) {
         );
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Client / Organisme", "Type", "Nb Tickets Impayés", "Reste à Payer"],
+            ...data.map(r => [r.nom, r.type, r.count_tickets, r.total_debt])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "ComptesClients");
+        XLSX.writeFile(wb, `ComptesClients.xlsx`);
+    };
+
     const totalDebt = data.reduce((acc, r) => acc + r.total_debt, 0);
 
     return (
@@ -855,7 +1049,12 @@ function ReportAccountsReceivable({ onBack }: { onBack: () => void }) {
                     Total Créances : {totalDebt.toLocaleString()} F
                 </div>
 
-                <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>
+                <div style={{ marginLeft: 'auto', fontWeight: 'bold', color: '#2c3e50', fontSize: '15px' }}>
+                    Total Créances : {totalDebt.toLocaleString()} F
+                </div>
+
+                <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -931,6 +1130,18 @@ function ReportSalesJournal({ onBack }: { onBack: () => void }) {
         `);
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Date", "Ticket", "Patient", "Acte", "Mode", "Opérateur", "Montant"],
+            ...data.map(r => [new Date(r.date_vente).toLocaleString(), r.numero_ticket, r.patient_name, r.acte_libelle, r.mode_paiement, r.user_name, r.montant_total])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "Ventes");
+        XLSX.writeFile(wb, `Ventes_${dates.start}_${dates.end}.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -941,7 +1152,12 @@ function ReportSalesJournal({ onBack }: { onBack: () => void }) {
                 <label>Du : <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} style={inputStyle} /></label>
                 <label>Au : <input type="date" value={dates.end} onChange={e => setDates({ ...dates, end: e.target.value })} style={inputStyle} /></label>
                 <button onClick={loadData} disabled={loading} style={btnActionStyle}>{loading ? '...' : 'Afficher'}</button>
-                {data.length > 0 && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                {data.length > 0 && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                    </>
+                )}
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead><tr style={{ background: '#3498db', color: 'white' }}><th style={thStyle}>Date</th><th style={thStyle}>Ticket</th><th style={thStyle}>Patient</th><th style={thStyle}>Acte</th><th style={thStyle}>Mode</th><th style={thStyle}>Opérateur</th><th style={thStyle}>Montant</th></tr></thead>
@@ -999,6 +1215,18 @@ function ReportPurchaseJournal({ onBack }: { onBack: () => void }) {
         `);
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Date", "N° BL", "Fournisseur", "Montant"],
+            ...data.map(r => [new Date(r.date_bl).toLocaleString(), r.numero_bl, r.fournisseur_nom, r.montant_total])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "Achats");
+        XLSX.writeFile(wb, `Achats_${dates.start}_${dates.end}.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -1009,7 +1237,12 @@ function ReportPurchaseJournal({ onBack }: { onBack: () => void }) {
                 <label>Du : <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} style={inputStyle} /></label>
                 <label>Au : <input type="date" value={dates.end} onChange={e => setDates({ ...dates, end: e.target.value })} style={inputStyle} /></label>
                 <button onClick={loadData} disabled={loading} style={{ ...btnActionStyle, background: '#8e44ad' }}>{loading ? '...' : 'Afficher'}</button>
-                {data.length > 0 && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                {data.length > 0 && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                    </>
+                )}
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead><tr style={{ background: '#9b59b6', color: 'white' }}><th style={thStyle}>Date</th><th style={thStyle}>N° BL</th><th style={thStyle}>Fournisseur</th><th style={thStyle}>Montant</th></tr></thead>
@@ -1076,6 +1309,21 @@ function ReportPeriodicActivity({ onBack }: { onBack: () => void }) {
         }
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Rubrique", "Montant"],
+            ["Total Ventes", stats.sales],
+            ["Total Achats", stats.purchases],
+            ["Total Dépenses", stats.expenses],
+            ["RÉSULTAT NET", stats.result]
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "RapportActivite");
+        XLSX.writeFile(wb, `Activite_${dates.start}_${dates.end}.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -1086,7 +1334,12 @@ function ReportPeriodicActivity({ onBack }: { onBack: () => void }) {
                 <label>Du : <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} style={inputStyle} /></label>
                 <label>Au : <input type="date" value={dates.end} onChange={e => setDates({ ...dates, end: e.target.value })} style={inputStyle} /></label>
                 <button onClick={loadData} disabled={loading} style={{ ...btnActionStyle, background: '#16a085' }}>{loading ? '...' : 'Calculer'}</button>
-                {stats && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                {stats && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                    </>
+                )}
             </div>
 
             {stats && (
@@ -1170,6 +1423,18 @@ function ReportDailyCashJournal({ onBack }: { onBack: () => void }) {
         `);
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Heure", "Libellé / Opération", "Entrée", "Sortie", "Solde Progressif"],
+            ...data.map(r => [new Date(r.date).toLocaleTimeString(), r.libelle, r.sens === 'IN' ? r.montant : 0, r.sens === 'OUT' ? r.montant : 0, r.solde])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "JournalCaisse");
+        XLSX.writeFile(wb, `JournalCaisse_${date}.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -1179,7 +1444,12 @@ function ReportDailyCashJournal({ onBack }: { onBack: () => void }) {
             <div style={{ background: '#fef9e7', padding: '15px', borderRadius: '8px', display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '20px' }}>
                 <label>Date : <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} /></label>
                 <button onClick={loadData} disabled={loading} style={{ ...btnActionStyle, background: '#f39c12' }}>{loading ? '...' : 'Afficher'}</button>
-                {data.length > 0 && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                {data.length > 0 && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                    </>
+                )}
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead><tr style={{ background: '#d35400', color: 'white' }}><th style={thStyle}>Heure</th><th style={thStyle}>Libellé / Opération</th><th style={thStyle}>Entrée</th><th style={thStyle}>Sortie</th><th style={thStyle}>Solde Progressif</th></tr></thead>
@@ -1231,12 +1501,14 @@ function ReportCashFlowPeriod({ onBack }: { onBack: () => void }) {
             const dailyStats: Record<string, { in: number, out: number }> = {};
 
             salesRes.forEach(s => {
-                if (!dailyStats[s.day]) dailyStats[s.day] = { in: 0, out: 0 };
-                dailyStats[s.day].in += parseFloat(s.total_sales || "0");
+                const day = s.day;
+                if (!dailyStats[day]) dailyStats[day] = { in: 0, out: 0 };
+                dailyStats[day].in += parseFloat(s.total_sales || "0");
             });
 
             movementsRes.forEach(m => {
-                if (!dailyStats[m.day]) dailyStats[m.day] = { in: 0, out: 0 };
+                const day = m.day;
+                if (!dailyStats[day]) dailyStats[day] = { in: 0, out: 0 };
                 const val = parseFloat(m.total || "0");
                 if (m.type === 'DECAISSEMENT') dailyStats[m.day].out += val;
                 else dailyStats[m.day].in += val; // ENCAISSEMENT
@@ -1271,6 +1543,18 @@ function ReportCashFlowPeriod({ onBack }: { onBack: () => void }) {
         `);
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Date", "Total Entrées", "Total Sorties", "Solde Journalier"],
+            ...data.map(r => [new Date(r.day).toLocaleDateString(), r.in, r.out, r.balance])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "SommeJournaux");
+        XLSX.writeFile(wb, `SommeJournaux_${dates.start}_${dates.end}.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -1280,8 +1564,13 @@ function ReportCashFlowPeriod({ onBack }: { onBack: () => void }) {
             <div style={{ background: '#fdf2e9', padding: '15px', borderRadius: '8px', display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '20px' }}>
                 <label>Du : <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} style={inputStyle} /></label>
                 <label>Au : <input type="date" value={dates.end} onChange={e => setDates({ ...dates, end: e.target.value })} style={inputStyle} /></label>
-                <button onClick={loadData} disabled={loading} style={{ ...btnActionStyle, background: '#d35400' }}>{loading ? '...' : 'Afficher'}</button>
-                {data.length > 0 && <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ Imprimer</button>}
+                <button onClick={loadData} disabled={loading} style={{ ...btnActionStyle, background: '#e67e22' }}>{loading ? '...' : 'Afficher'}</button>
+                {data.length > 0 && (
+                    <>
+                        <button onClick={handlePrint} style={{ ...btnActionStyle, background: '#2c3e50' }}>🖨️ PDF / Imprimer</button>
+                        <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                    </>
+                )}
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead><tr style={{ background: '#e67e22', color: 'white' }}><th style={thStyle}>Date</th><th style={thStyle}>Total Entrées (Vente+Enc)</th><th style={thStyle}>Total Sorties (Dépenses)</th><th style={thStyle}>Solde Journalier</th></tr></thead>
@@ -1404,6 +1693,25 @@ function ReportCashDiscrepancy({ onBack }: { onBack: () => void }) {
         }
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const physical = parseFloat(physicalAmount) || 0;
+        const diff = physical - stats.theoretical;
+        const wsData = [
+            ["Rubrique", "Montant"],
+            ["Total Ventes (Espèces)", stats.sales],
+            ["Total Autres Entrées", stats.inMovs],
+            ["Total Sorties", -stats.outMovs],
+            ["SOLDE THÉORIQUE", stats.theoretical],
+            ["MONTANT PHYSIQUE", physical],
+            ["ECART", diff]
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "ControleCaisse");
+        XLSX.writeFile(wb, `ControleCaisse_${date}.xlsx`);
+    };
+
     const discrepancy = stats ? (parseFloat(physicalAmount) || 0) - stats.theoretical : 0;
 
     return (
@@ -1465,6 +1773,7 @@ function ReportCashDiscrepancy({ onBack }: { onBack: () => void }) {
                         </div>
 
                         <button onClick={handlePrint} style={{ width: '100%', marginTop: '20px', padding: '12px', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '5px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimer PV de Caisse</button>
+                        <button onClick={exportToExcel} style={{ width: '100%', marginTop: '10px', padding: '12px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '5px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>📊 Exporter Excel (.xlsx)</button>
                     </div>
                 </div>
             )}
@@ -1496,12 +1805,29 @@ function ReportDeletedSales({ onBack }: { onBack: () => void }) {
         } catch (e) { alert("Erreur chargement traces"); } finally { setLoading(false); }
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Date Suppr.", "Patient", "Acte", "Montant", "Motif", "Par"],
+            ...data.map(r => [new Date(r.date_suppression).toLocaleString(), r.patient_nom, r.acte_libelle, r.montant_total, r.raison_suppression, r.user_nom])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "VentesSupprimees");
+        XLSX.writeFile(wb, `VentesSupprimees.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
                 <button onClick={onBack} style={btnBackStyle}>⬅ Retour</button>
                 <h2 style={{ margin: 0, color: '#e74c3c' }}>🗑️ Traces des Ventes Supprimées {loading && <small>(Chargement...)</small>}</h2>
             </div>
+            {data.length > 0 && (
+                <div style={{ textAlign: 'right', marginBottom: '10px' }}>
+                    <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                </div>
+            )}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead><tr style={{ background: '#c0392b', color: 'white' }}><th style={thStyle}>Date Suppr.</th><th style={thStyle}>Patient</th><th style={thStyle}>Acte</th><th style={thStyle}>Montant</th><th style={thStyle}>Motif</th><th style={thStyle}>Par</th></tr></thead>
                 <tbody>
@@ -1545,12 +1871,29 @@ function ReportDebtModif({ onBack }: { onBack: () => void }) {
         } catch (e) { alert("Erreur chargement logs"); } finally { setLoading(false); }
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Date", "Ticket", "Ancien Solde", "Nouveau Solde", "Motif", "Par"],
+            ...data.map(r => [new Date(r.date_modification).toLocaleString(), r.numero_ticket, r.old_value, r.new_value, r.motif, r.user_nom])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "ModifDettes");
+        XLSX.writeFile(wb, `ModifDettes.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
                 <button onClick={onBack} style={btnBackStyle}>⬅ Retour</button>
                 <h2 style={{ margin: 0, color: '#8e44ad' }}>📝 Modifications des Restes à Payer {loading && <small>(Chargement...)</small>}</h2>
             </div>
+            {data.length > 0 && (
+                <div style={{ textAlign: 'right', marginBottom: '10px' }}>
+                    <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                </div>
+            )}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead><tr style={{ background: '#9b59b6', color: 'white' }}><th style={thStyle}>Date</th><th style={thStyle}>Ticket</th><th style={thStyle}>Ancien Solde</th><th style={thStyle}>Nouveau Solde</th><th style={thStyle}>Delta</th><th style={thStyle}>Motif</th><th style={thStyle}>Par</th></tr></thead>
                 <tbody>
@@ -1626,12 +1969,29 @@ function ReportDeletedBL({ onBack }: { onBack: () => void }) {
         } catch (e) { alert("Format d'archive illisible."); }
     };
 
+    const exportToExcel = async () => {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.utils.book_new();
+        const wsData = [
+            ["Date Suppr.", "Numéro BL", "Fournisseur", "Montant", "Par"],
+            ...data.map(r => [new Date(r.date_suppression).toLocaleString(), r.numero_bl, r.fournisseur_nom, r.montant_total, r.user_nom])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        XLSX.utils.book_append_sheet(wb, ws, "BLSupprimes");
+        XLSX.writeFile(wb, `BLSupprimes.xlsx`);
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
                 <button onClick={onBack} style={btnBackStyle}>⬅ Retour</button>
                 <h2 style={{ margin: 0, color: '#c0392b' }}>🚚 Traces des BL Supprimés {loading && <small>(Chargement...)</small>}</h2>
             </div>
+            {data.length > 0 && (
+                <div style={{ textAlign: 'right', marginBottom: '10px' }}>
+                    <button onClick={exportToExcel} style={{ ...btnActionStyle, background: '#27ae60' }}>📊 Excel (.xlsx)</button>
+                </div>
+            )}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead><tr style={{ background: '#e74c3c', color: 'white' }}><th style={thStyle}>Date Suppr.</th><th style={thStyle}>Numéro BL</th><th style={thStyle}>Fournisseur</th><th style={thStyle}>Montant</th><th style={thStyle}>Par</th><th style={thStyle}>Détails</th></tr></thead>
                 <tbody>
@@ -1665,39 +2025,38 @@ function ReportEntreesSorties({ onBack }: { onBack: () => void }) {
         setLoading(true);
         try {
             const db = await getDb();
-            // 1. Sales (Cash)
+            // 1. Sales (Money In: Cash + Mobile etc. Excludes unpaid Credit)
+            // We calculate amount as (part_patient - reste_a_payer) to get what was actually PAID.
             const sales = await db.select<any[]>(`
                 SELECT v.id, v.date_vente as date_mvt, 
                        CONCAT('Vente #', v.id, ' - ', COALESCE(p.nom_prenoms, 'Patient Passager')) as libelle,
-                       v.part_patient as montant, 'IN' as type
+                       (v.part_patient - v.reste_a_payer) as montant, 
+                       v.mode_paiement as mode,
+                       'IN' as type
                 FROM ventes v
                 LEFT JOIN patients p ON v.patient_id = p.id
-                WHERE (v.mode_paiement LIKE 'ESP%CE' OR v.mode_paiement = 'ESPECES') 
+                WHERE (v.part_patient - v.reste_a_payer) > 0 
                   AND DATE(v.date_vente) BETWEEN ? AND ?
             `, [dates.start, dates.end]);
 
-            // 2. Movements (Cash)
+            // 2. Movements (All modes)
             const movements = await db.select<any[]>(`
                 SELECT m.id, m.date_mouvement as date_mvt, 
                        m.motif as libelle,
                        m.montant as montant, 
+                       m.mode_paiement as mode,
                        CASE WHEN m.type = 'ENCAISSEMENT' THEN 'IN' ELSE 'OUT' END as type
                 FROM caisse_mouvements m
-                WHERE (m.mode_paiement LIKE 'ESP%CE' OR m.mode_paiement = 'ESPECES') 
-                  AND DATE(m.date_mouvement) BETWEEN ? AND ?
+                WHERE DATE(m.date_mouvement) BETWEEN ? AND ?
             `, [dates.start, dates.end]);
 
             // 3. Merge & Sort
-            let runningBalance = 0; // This should ideally start with previous balance, but for this report we might just show flow
+            // Previous Balance Calculation is complex with mixed modes, so we reset to 0 or we need a global historical calc.
+            // For now, let's keep it simple: Flow within period. 
+            // If user wants historical balance, they should use Cash Control for Cash, or Bank for Bank.
+            // This report is "Entrées / Sorties" (Flow).
 
-            // Optional: Get previous balance
-            const prevSales = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(part_patient),0) AS CHAR) as t FROM ventes WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND DATE(date_vente) < ?`, [dates.start]);
-            const prevMvtsIn = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant),0) AS CHAR) as t FROM caisse_mouvements WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND type='ENCAISSEMENT' AND DATE(date_mouvement) < ?`, [dates.start]);
-            const prevMvtsOut = await db.select<any[]>(`SELECT CAST(COALESCE(SUM(montant),0) AS CHAR) as t FROM caisse_mouvements WHERE (mode_paiement LIKE 'ESP%CE' OR mode_paiement='ESPECES') AND type='DECAISSEMENT' AND DATE(date_mouvement) < ?`, [dates.start]);
-
-            const startBalance = (parseFloat(prevSales[0]?.t || "0")) + (parseFloat(prevMvtsIn[0]?.t || "0")) - (parseFloat(prevMvtsOut[0]?.t || "0"));
-            runningBalance = startBalance;
-
+            let runningBalance = 0;
             const all = [...sales, ...movements].sort((a, b) => new Date(a.date_mvt).getTime() - new Date(b.date_mvt).getTime());
 
             const finalData = all.map(item => {
@@ -1717,22 +2076,20 @@ function ReportEntreesSorties({ onBack }: { onBack: () => void }) {
     };
 
     const exportToExcel = async () => {
-        // Dynamic import to avoid build issues if xlsx not used elsewhere
         const XLSX = await import('xlsx');
-
         const wb = XLSX.utils.book_new();
         const wsData = [
-            ["Date", "Libellé", "Entrée", "Sortie", "Solde"],
+            ["Date", "Libellé", "Mode", "Entrée", "Sortie", "Solde Prog."],
             ...data.map(r => [
                 new Date(r.date_mvt).toLocaleDateString() + ' ' + new Date(r.date_mvt).toLocaleTimeString(),
                 r.libelle,
+                r.mode,
                 r.type === 'IN' ? r.montant : 0,
                 r.type === 'OUT' ? r.montant : 0,
                 r.balance
             ]),
-            ["", "TOTAL", stats.in, stats.out, stats.solde]
+            ["", "TOTAL", "", stats.in, stats.out, stats.solde]
         ];
-
         const ws = XLSX.utils.aoa_to_sheet(wsData);
         XLSX.utils.book_append_sheet(wb, ws, "Rapport Entrées Sorties");
         XLSX.writeFile(wb, `Rapport_Entrees_Sorties_${dates.start}_${dates.end}.xlsx`);
@@ -1740,12 +2097,13 @@ function ReportEntreesSorties({ onBack }: { onBack: () => void }) {
 
     const handlePrint = () => {
         if (data.length === 0) return alert("Rien à imprimer");
-        printReport(`Rapport Entrées / Sorties`, dates, ['Date', 'Libellé', 'Entrée', 'Sortie', 'Solde'],
+        printReport(`Rapport Entrées / Sorties`, dates, ['Date', 'Libellé', 'Mode', 'Entrée', 'Sortie', 'Solde'],
             `Solde Période: ${stats.solde.toLocaleString()} F | Total Entrées: ${stats.in.toLocaleString()} F | Total Sorties: ${stats.out.toLocaleString()} F`,
             data, r => `
             <tr>
                 <td>${new Date(r.date_mvt).toLocaleDateString()} ${new Date(r.date_mvt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                 <td>${r.libelle}</td>
+                <td>${r.mode || '-'}</td>
                 <td style="text-align:right; color:green">${r.type === 'IN' ? r.montant.toLocaleString() : '-'}</td>
                 <td style="text-align:right; color:red">${r.type === 'OUT' ? r.montant.toLocaleString() : '-'}</td>
                 <td style="text-align:right; font-weight:bold">${r.balance.toLocaleString()}</td>
@@ -1757,7 +2115,7 @@ function ReportEntreesSorties({ onBack }: { onBack: () => void }) {
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
                 <button onClick={onBack} style={btnBackStyle}>⬅ Retour</button>
-                <h2 style={{ margin: 0, color: '#2c3e50' }}>📑 Rapport Entrées / Sorties (Détail)</h2>
+                <h2 style={{ margin: 0, color: '#2c3e50' }}>📑 Rapport Entrées / Sorties (Tout Mode)</h2>
             </div>
             <div style={{ background: '#ecf0f1', padding: '15px', borderRadius: '8px', display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '20px' }}>
                 <label>Du : <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} style={inputStyle} /></label>
@@ -1773,21 +2131,22 @@ function ReportEntreesSorties({ onBack }: { onBack: () => void }) {
             <div style={{ display: 'flex', gap: '20px', marginBottom: '20px', fontSize: '14px' }}>
                 <div style={{ background: 'green', color: 'white', padding: '10px', borderRadius: '5px' }}>Total Entrées: <b>{stats.in.toLocaleString()} F</b></div>
                 <div style={{ background: 'red', color: 'white', padding: '10px', borderRadius: '5px' }}>Total Sorties: <b>{stats.out.toLocaleString()} F</b></div>
-                <div style={{ background: '#2c3e50', color: 'white', padding: '10px', borderRadius: '5px' }}>Solde Fin Période: <b>{stats.solde.toLocaleString()} F</b></div>
+                <div style={{ background: '#2c3e50', color: 'white', padding: '10px', borderRadius: '5px' }}>Solde Période: <b>{stats.solde.toLocaleString()} F</b></div>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                <thead><tr style={{ background: '#bdc3c7', color: '#2c3e50' }}><th style={thStyle}>Date</th><th style={thStyle}>Libellé</th><th style={thStyle}>Entrée</th><th style={thStyle}>Sortie</th><th style={thStyle}>Solde</th></tr></thead>
+                <thead><tr style={{ background: '#bdc3c7', color: '#2c3e50' }}><th style={thStyle}>Date</th><th style={thStyle}>Libellé</th><th style={thStyle}>Mode</th><th style={thStyle}>Entrée</th><th style={thStyle}>Sortie</th><th style={thStyle}>Solde Prog.</th></tr></thead>
                 <tbody>
                     {data.map((r, i) => (
                         <tr key={i} style={{ borderBottom: '1px solid #eee', background: i % 2 === 0 ? 'white' : '#f9f9f9' }}>
                             <td style={tdStyle}>{new Date(r.date_mvt).toLocaleString()}</td>
                             <td style={tdStyle}>{r.libelle}</td>
+                            <td style={{ ...tdStyle, fontWeight: 'bold', color: '#555' }}>{r.mode}</td>
                             <td style={{ ...tdStyle, textAlign: 'right', color: 'green' }}>{r.type === 'IN' ? r.montant.toLocaleString() : ''}</td>
                             <td style={{ ...tdStyle, textAlign: 'right', color: 'red' }}>{r.type === 'OUT' ? r.montant.toLocaleString() : ''}</td>
                             <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>{r.balance.toLocaleString()}</td>
                         </tr>
                     ))}
-                    {data.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Aucune donnée pour cette période.</td></tr>}
+                    {data.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Aucune donnée pour cette période.</td></tr>}
                 </tbody>
             </table>
         </div>

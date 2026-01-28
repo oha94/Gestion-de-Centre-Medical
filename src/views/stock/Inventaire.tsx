@@ -408,7 +408,7 @@ export default function Inventaire({ currentUser }: { currentUser?: any }) {
 
         const company = await getCompanyInfo();
 
-        const title = mode === 'AVEUGLE' ? "FICHE DE COMPTAGE (AVEUGLE)" : "FICHE DE CONTRÔLE (ÉCARTS)";
+        const title = mode === 'AVEUGLE' ? "FICHE DE COMPTAGE" : "FICHE DE CONTRÔLE (ÉCARTS)";
         const rayonLib = getRayonLibelles(currentInv);
         const dateStr = new Date().toLocaleDateString('fr-FR');
 
@@ -439,7 +439,9 @@ export default function Inventaire({ currentUser }: { currentUser?: any }) {
                     td { padding: 7px 10px; border-bottom: 1px solid #f9f9f9; color: #444; }
                     tr:last-child td { border-bottom: none; }
                     
-                    .case-vide { border: 1px solid #ddd; height: 18px; width: 60px; display: inline-block; background: #fff; }
+                    .rayon-header { background: #eaf2f8; color: #2c3e50; font-weight: bold; font-size: 12px; padding: 10px; border-top: 2px solid #3498db; border-bottom: 1px solid #bdc3c7; }
+
+                    .case-vide { border: 1px solid #333; height: 35px; width: 80px; display: inline-block; background: #fff; margin: 2px 0; }
                     .footer { position: fixed; bottom: 0; left: 0;right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
                 </style>
                 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -478,24 +480,45 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                         <tr>
                             <th>CIP</th>
                             <th>Désignation</th>
-                            <th>Rayon</th>
+                            <!-- Rayon column removed as it's now a header -->
                             ${mode === 'AVEUGLE' ? '<th>Qté Comptée</th>' : '<th>Théo.</th><th>Compté</th><th>Écart</th>'}
                         </tr>
                     </thead>
                     <tbody>
-                        ${dataToPrint.map(l => `
-                            <tr>
-                                <td>${l.cip}</td>
-                                <td>${l.designation}</td>
-                                <td>${l.rayon_libelle || '-'}</td>
-                                ${mode === 'AVEUGLE'
-                ? `<td><div class="case-vide"></div></td>`
-                : `<td style="text-align:center;">${l.stock_theorique}</td>
-                                       <td style="text-align:center;"><strong>${l.stock_compte || 0}</strong></td>
-                                       <td style="text-align:center; color:${l.ecart !== 0 ? 'red' : 'green'}; font-weight:bold;">${l.ecart > 0 ? '+' : ''}${l.ecart}</td>`
-            }
-                            </tr>
-                        `).join('')}
+                        ${(() => {
+                // Sort by Rayon then Designation
+                const sortedData = [...dataToPrint].sort((a, b) => {
+                    const rA = a.rayon_libelle || 'Z_Inconnu';
+                    const rB = b.rayon_libelle || 'Z_Inconnu';
+                    if (rA !== rB) return rA.localeCompare(rB);
+                    return a.designation.localeCompare(b.designation);
+                });
+
+                let currentRayon: string | null = null;
+                return sortedData.map(l => {
+                    let rayonHeader = '';
+                    const rayonName = l.rayon_libelle || 'Rayon Inconnu';
+
+                    if (rayonName !== currentRayon) {
+                        currentRayon = rayonName;
+                        rayonHeader = `<tr><td colspan="${mode === 'AVEUGLE' ? 3 : 5}" class="rayon-header">📂 ${rayonName}</td></tr>`;
+                    }
+
+                    return `
+                                    ${rayonHeader}
+                                    <tr>
+                                        <td>${l.cip}</td>
+                                        <td>${l.designation}</td>
+                                        ${mode === 'AVEUGLE'
+                            ? `<td><div class="case-vide"></div></td>`
+                            : `<td style="text-align:center;">${l.stock_theorique}</td>
+                                               <td style="text-align:center;"><strong>${l.stock_compte || 0}</strong></td>
+                                               <td style="text-align:center; color:${l.ecart !== 0 ? 'red' : 'green'}; font-weight:bold;">${l.ecart > 0 ? '+' : ''}${l.ecart}</td>`
+                        }
+                                    </tr>
+                                `;
+                }).join('');
+            })()}
                     </tbody>
                 </table>
 
@@ -876,28 +899,26 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                             <div style={{ display: 'flex', gap: '10px' }}>
                                 <button onClick={refreshTheorique} style={{ ...btnAction, background: '#f39c12' }} title="Mettre à jour les stocks théoriques depuis la base">🔄 Rafraîchir</button>
                                 {/* Allow if undefined or true */}
-                                {(currentUser?.can_print !== false && currentUser?.can_print !== 0) && (
-                                    <>
-                                        <button onClick={imprimerRecap} style={{ ...btnAction, background: '#8e44ad' }}>🖨️ Récapitulatif</button>
-                                        <button onClick={() => utilsExportToExcel(lignes.map(l => ({
-                                            'CIP': l.cip,
-                                            'Désignation': l.designation,
-                                            'Rayon': l.rayon_libelle,
-                                            'Stock Théorique': l.stock_theorique,
-                                            'Stock Compté': l.stock_compte,
-                                            'Écart': l.ecart,
-                                            'Prix Achat': l.prix_achat,
-                                            'Valeur Stock': (l.stock_compte || 0) * l.prix_achat
-                                        })), `Inventaire_${currentInv.code}`)} style={{ ...btnAction, background: '#107c41' }}>📊 Excel</button>
-                                        <button onClick={() => imprimerFiche('AVEUGLE')} style={btnAction}>📄 Fiche</button>
-                                        <button onClick={() => imprimerFiche('ECARTS')} style={btnAction}>⚠️ Écarts</button>
-                                    </>
-                                )}
+                                <>
+                                    <button onClick={imprimerRecap} style={{ ...btnAction, background: '#8e44ad' }}>🖨️ Récapitulatif</button>
+                                    <button onClick={() => utilsExportToExcel(lignes.map(l => ({
+                                        'CIP': l.cip,
+                                        'Désignation': l.designation,
+                                        'Rayon': l.rayon_libelle,
+                                        'Stock Théorique': l.stock_theorique,
+                                        'Stock Compté': l.stock_compte,
+                                        'Écart': l.ecart,
+                                        'Prix Achat': l.prix_achat,
+                                        'Valeur Stock': (l.stock_compte || 0) * l.prix_achat
+                                    })), `Inventaire_${currentInv.code}`)} style={{ ...btnAction, background: '#107c41' }}>📊 Excel</button>
+                                    <button onClick={() => imprimerFiche('AVEUGLE')} style={{ ...btnAction, background: '#e67e22' }}>🖨️ Fiche de Comptage</button>
+                                    <button onClick={() => imprimerFiche('ECARTS')} style={btnAction}>⚠️ Écarts</button>
+                                </>
                                 <button onClick={validerInventaire} style={{ ...btnAction, background: '#27ae60', marginLeft: '20px' }}>✅ Valider</button>
                             </div>
                         )}
                         {/* Allow if undefined or true */}
-                        {currentInv.statut === 'VALIDE' && (currentUser?.can_print !== false && currentUser?.can_print !== 0) && (
+                        {currentInv.statut === 'VALIDE' && (
                             <>
                                 <button onClick={imprimerRecap} style={{ ...btnAction, background: '#8e44ad' }}>🖨️ Récapitulatif</button>
                                 <button onClick={() => utilsExportToExcel(lignes.map(l => ({
@@ -963,7 +984,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                                                     <strong>{ligne.designation}</strong><br />
                                                     <span style={{ color: '#95a5a6', fontSize: '11px' }}>{ligne.cip}</span>
                                                 </td>
-                                                <td style={tdStyle}>{ligne.rayon_libelle}</td>
+                                                <td style={tdStyle}>{ligne.rayon_libelle || (ligne.rayon_id ? `ID: ${ligne.rayon_id}` : 'Non défini')}</td>
                                                 <td style={{ ...tdStyle, textAlign: 'center', color: '#7f8c8d' }}>{ligne.stock_theorique}</td>
                                                 <td style={{ ...tdStyle, textAlign: 'center', padding: '5px' }}>
                                                     {currentInv.statut === 'BROUILLON' ? (

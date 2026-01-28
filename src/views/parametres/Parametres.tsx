@@ -108,6 +108,7 @@ export default function ParametresView() {
             icon="👔"
           />
 
+
           <SubMenuBtn
             label="Rôles & Permissions"
             id="roles"

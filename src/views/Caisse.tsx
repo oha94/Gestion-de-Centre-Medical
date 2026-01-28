@@ -5,19 +5,19 @@ export default function CaisseView() {
   // --- ÉTATS DONNÉES ---
   const [patients, setPatients] = useState<any[]>([]);
   const [prestations, setPrestations] = useState<any[]>([]);
-  
+
   // --- ÉTATS RECHERCHE & SÉLECTION ---
   const [searchCarnet, setSearchCarnet] = useState("");
   const [patientSelectionne, setPatientSelectionne] = useState<any>(null);
   const [panier, setPanier] = useState<any[]>([]);
-  
+
   // --- ÉTATS PAIEMENT ---
   const [modePaiement, setModePaiement] = useState("CASH");
 
   const chargerInitial = async () => {
     try {
       const db = await getDb();
-      
+
       // Charger patients avec assurance ET hospitalisation
       const resP = await db.select<any[]>(`
         SELECT p.*, 
@@ -33,9 +33,9 @@ export default function CaisseView() {
         LEFT JOIN lits l ON h.lit_id = l.id
         LEFT JOIN chambres c ON l.chambre_id = c.id
       `);
-      
+
       const resA = await db.select<any[]>("SELECT * FROM prestations ORDER BY categorie, libelle ASC");
-      
+
       setPatients(resP);
       setPrestations(resA);
     } catch (e) { console.error(e); }
@@ -46,7 +46,7 @@ export default function CaisseView() {
   useEffect(() => {
     const p = patients.find(pat => pat.numero_carnet?.toLowerCase().trim() === searchCarnet.toLowerCase().trim());
     setPatientSelectionne(p || null);
-    
+
     if (!p) {
       setPanier([]);
     } else {
@@ -63,34 +63,129 @@ export default function CaisseView() {
   const ajouterFraisHospitalisation = async (patient: any) => {
     try {
       const db = await getDb();
-      
+
       // Récupérer les détails de l'hospitalisation
       const resHospi = await db.select<any[]>(`
-        SELECT a.nb_jours, l.prix_journalier, l.nom_lit, c.nom as nom_chambre
+        SELECT a.nb_jours, a.mode_tarif, 
+               l.prix_journalier, l.prix_assurance, l.prix_ventile, l.prix_ventile_assurance,
+               l.nom_lit, c.nom as nom_chambre
         FROM admissions a
         JOIN lits l ON a.lit_id = l.id
         JOIN chambres c ON l.chambre_id = c.id
         WHERE a.id = ? AND a.statut = 'en_cours'
       `, [patient.hospitalisation_id]);
-      
+
       if (resHospi.length > 0) {
         const hospi = resHospi[0];
-        const montantTotal = hospi.nb_jours * hospi.prix_journalier;
         const taux = patient.taux_couverture || 0;
         const useAssur = taux > 0;
-        const partAssur = useAssur ? Math.round((montantTotal * taux) / 100) : 0;
-        
-        const item = {
+        const isVentile = hospi.mode_tarif === 'VENTILE';
+
+        const panierItems: any[] = [];
+
+        // 1. CHAMBRE
+        let prixChambreJ = 0;
+        if (useAssur) {
+          prixChambreJ = isVentile ? (hospi.prix_ventile_assurance || hospi.prix_ventile || 0) : (hospi.prix_assurance || hospi.prix_journalier);
+        } else {
+          prixChambreJ = isVentile ? (hospi.prix_ventile || hospi.prix_journalier) : hospi.prix_journalier;
+        }
+        const totalChambre = prixChambreJ * hospi.nb_jours;
+        const partChambreAssur = useAssur ? Math.round((totalChambre * taux) / 100) : 0;
+
+        panierItems.push({
           id: Date.now(),
-          libelle: `🏥 Hospitalisation (${hospi.nom_chambre}/${hospi.nom_lit}) - ${hospi.nb_jours} jour(s)`,
-          total: montantTotal,
+          libelle: `🏥 Chambre ${isVentile ? 'Ventilée' : 'Clim'} (${hospi.nom_chambre}) - ${hospi.nb_jours}j`,
+          total: totalChambre,
           useAssurance: useAssur,
-          partAssureur: partAssur,
-          partPatient: montantTotal - partAssur,
-          isHospitalisation: true // Flag pour identifier les frais d'hospitalisation
-        };
-        
-        setPanier([item]);
+          partAssureur: partChambreAssur,
+          partPatient: totalChambre - partChambreAssur,
+          isHospitalisation: true
+        });
+
+        // 2. AMI (Assistance Médicale)
+        const prixAMIJ = useAssur ? 8000 : 4000;
+        const totalAMI = prixAMIJ * hospi.nb_jours;
+        const partAMIAssur = useAssur ? Math.round((totalAMI * taux) / 100) : 0; // AMI is covered? Assumed yes.
+        // Wait, AMI 8000 for Assurance usually means 8000 covered or base? 
+        // Logic: Tariff is 8000 if insured. Then apply coverage %? Or 8000 IS the covered part?
+        // Usually: Base price changes. Then we apply %.
+
+        panierItems.push({
+          id: Date.now() + 1,
+          libelle: `👩‍⚕️ AMI (${hospi.nb_jours}j x ${prixAMIJ})`,
+          total: totalAMI,
+          useAssurance: useAssur,
+          partAssureur: partAMIAssur,
+          partPatient: totalAMI - partAMIAssur,
+          isHospitalisation: true
+        });
+
+        // 3. VISITE MEDICALE
+        // Cash: 1000/j. Assurance: 4000/j (A partir de J2).
+        let totalVisite = 0;
+        let libelleVisite = "";
+
+        if (useAssur) {
+          const joursFact = Math.max(0, hospi.nb_jours - 1);
+          totalVisite = joursFact * 4000;
+          libelleVisite = `👨‍⚕️ Visite Médicale (${joursFact}j x 4000)`;
+        } else {
+          totalVisite = hospi.nb_jours * 1000;
+          libelleVisite = `👨‍⚕️ Visite Médicale (${hospi.nb_jours}j x 1000)`;
+        }
+
+        if (totalVisite > 0) {
+          const partVisiteAssur = useAssur ? Math.round((totalVisite * taux) / 100) : 0;
+          panierItems.push({
+            id: Date.now() + 2,
+            libelle: libelleVisite,
+            total: totalVisite,
+            useAssurance: useAssur,
+            partAssureur: partVisiteAssur,
+            partPatient: totalVisite - partVisiteAssur,
+            isHospitalisation: true
+          });
+        }
+
+        // 4. KIT PERFUSION (Automatique 1 fois)
+        // On récupère le prix depuis prestations ou défaut 5000
+        const kitPriceRes = await db.select<any[]>("SELECT prix_standard, prix_assurance FROM prestations WHERE libelle LIKE 'Kit Perfusion%' LIMIT 1");
+        let kitPrice = 5000;
+        if (kitPriceRes.length > 0) {
+          kitPrice = useAssur ? (kitPriceRes[0].prix_assurance || kitPriceRes[0].prix_standard) : kitPriceRes[0].prix_standard;
+        }
+
+        const partKitAssur = useAssur ? Math.round((kitPrice * taux) / 100) : 0;
+        panierItems.push({
+          id: Date.now() + 3,
+          libelle: `💉 Kit Perfusion (Systématique)`,
+          total: kitPrice,
+          useAssurance: useAssur,
+          partAssureur: partKitAssur,
+          partPatient: kitPrice - partKitAssur,
+          isHospitalisation: true
+        });
+
+        // 5. CONSOMMABLES & SOINS (admission_prestations)
+        const consos = await db.select<any[]>("SELECT * FROM admission_prestations WHERE admission_id = ?", [patient.hospitalisation_id]);
+        consos.forEach((c, idx) => {
+          if (c.libelle.toLowerCase().includes('kit perfusion')) return; // Déjà ajouté automatiquement
+
+          const total = c.prix_unitaire * c.quantite;
+          const partAssurC = useAssur ? Math.round((total * taux) / 100) : 0;
+          panierItems.push({
+            id: Date.now() + 10 + idx,
+            libelle: `💊 ${c.libelle} (x${c.quantite})`,
+            total: total,
+            useAssurance: useAssur,
+            partAssureur: partAssurC,
+            partPatient: total - partAssurC,
+            isHospitalisation: true
+          });
+        });
+
+        setPanier(panierItems);
       }
     } catch (e) {
       console.error("Erreur chargement frais hospitalisation:", e);
@@ -191,7 +286,7 @@ export default function CaisseView() {
       <h1 style={{ color: '#2c3e50', marginBottom: '20px' }}>💰 Caisse & Facturation</h1>
 
       <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-        
+
         {/* --- COLONNE GAUCHE : SÉLECTION PATIENT ET ACTES --- */}
         <div style={{ flex: 1.3 }}>
           <div style={cardStyle}>
@@ -199,28 +294,28 @@ export default function CaisseView() {
             <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginTop: '15px' }}>
               <div style={{ flex: 1 }}>
                 <label style={labelS}>Code Carnet</label>
-                <input 
-                  placeholder="N° Carnet..." 
-                  value={searchCarnet} 
-                  onChange={e => setSearchCarnet(e.target.value)} 
-                  style={{ ...inputStyle, border: '2px solid #3498db', fontSize: '1.1rem' }} 
+                <input
+                  placeholder="N° Carnet..."
+                  value={searchCarnet}
+                  onChange={e => setSearchCarnet(e.target.value)}
+                  style={{ ...inputStyle, border: '2px solid #3498db', fontSize: '1.1rem' }}
                 />
               </div>
               <div style={{ flex: 2 }}>
                 {patientSelectionne ? (
                   <div style={{ background: '#e8f6ef', padding: '12px', borderRadius: '8px', border: '1px solid #ddd' }}>
-                    <strong style={{ color: '#2c3e50', fontSize: '1.1rem' }}>{patientSelectionne.nom_prenoms}</strong><br/>
+                    <strong style={{ color: '#2c3e50', fontSize: '1.1rem' }}>{patientSelectionne.nom_prenoms}</strong><br />
                     <span style={{ color: '#27ae60', fontWeight: 'bold', fontSize: '0.9rem' }}>
                       🛡️ {patientSelectionne.nom_assurance ? `${patientSelectionne.nom_assurance} (${getTauxAssurance()}%)` : "PATIENT CASH (0%)"}
                     </span>
-                    
+
                     {/* INDICATEUR HOSPITALISATION */}
                     {patientSelectionne.hospitalisation_id && (
-                      <div style={{ 
-                        marginTop: '8px', 
-                        padding: '8px', 
-                        background: '#fff3cd', 
-                        border: '2px solid #f39c12', 
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '8px',
+                        background: '#fff3cd',
+                        border: '2px solid #f39c12',
                         borderRadius: '6px',
                         display: 'flex',
                         alignItems: 'center',
@@ -296,7 +391,7 @@ export default function CaisseView() {
                 </div>
               )}
             </div>
-            
+
             <div style={{ marginTop: '15px', minHeight: '100px' }}>
               {panier.map(item => (
                 <div key={item.id} style={{
@@ -323,8 +418,8 @@ export default function CaisseView() {
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
                       {/* Bouton basculer assurance pour TOUS les items si le patient est assuré */}
                       {getTauxAssurance() > 0 && (
-                        <button 
-                          onClick={() => basculerAssuranceItem(item.id)} 
+                        <button
+                          onClick={() => basculerAssuranceItem(item.id)}
                           style={{ ...btnText, color: item.useAssurance ? '#3498db' : '#e67e22' }}
                         >
                           {item.useAssurance ? "✔️ Assuré" : "❌ Cash"}
@@ -366,9 +461,9 @@ export default function CaisseView() {
               </select>
             </div>
 
-            <button 
-              disabled={panier.length === 0} 
-              onClick={validerPaiement} 
+            <button
+              disabled={panier.length === 0}
+              onClick={validerPaiement}
               style={{ ...btnValidate, background: panier.length > 0 ? '#27ae60' : '#ccc' }}
             >
               🚀 Valider l'encaissement

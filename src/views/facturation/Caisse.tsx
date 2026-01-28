@@ -1,5 +1,5 @@
 import { useState, useEffect, CSSProperties } from "react";
-import { generateTicketHTML, TicketData } from "../../utils/ticketGenerator";
+
 import { getDb } from "../../lib/db";
 
 /* const pulseStyle = `
@@ -79,8 +79,10 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
     // PAIEMENT STATES
     const [paymentStrategy, setPaymentStrategy] = useState<'COMPTANT' | 'CREDIT_TOTAL' | 'PARTIEL'>('COMPTANT');
     const [modePaiement1, setModePaiement1] = useState("CASH");
+    const [refPaiement1, setRefPaiement1] = useState("");
     const [montantVerse1, setMontantVerse1] = useState<number>(0);
     const [modePaiement2, setModePaiement2] = useState("AUCUN");
+    const [refPaiement2, setRefPaiement2] = useState("");
     const [montantVerse2, setMontantVerse2] = useState<number>(0);
 
     // --- INITIALISATION ---
@@ -213,6 +215,14 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                 if (catUpper.includes('LABO')) { cat = 'EXAMENS'; color = '#8e44ad'; icon = '🔬'; }
                 else if (catUpper === 'SOINS') { cat = 'ACTES MÉDICAUX'; color = '#27ae60'; icon = '💉'; }
                 else if (catUpper === 'CONSULTATION') { cat = 'CONSULTATIONS'; color = '#2980b9'; icon = '👨‍⚕️'; }
+                else if (catUpper.includes('HOSPITA')) { cat = 'HOSPITALISATIONS'; color = '#c0392b'; icon = '🏥'; }
+
+                // 🏥 FORÇAGE POUR HOSPITALISATION (Demande Utilisateur)
+                const libLower = p.libelle ? p.libelle.toLowerCase() : '';
+                if (libLower.includes('ami') && libLower.includes('infirmière')) { cat = 'HOSPITALISATIONS'; color = '#c0392b'; icon = '🏥'; }
+                if (libLower.includes('visite médicale')) { cat = 'HOSPITALISATIONS'; color = '#c0392b'; icon = '🏥'; }
+                if (libLower.includes('kit perfusion')) { cat = 'HOSPITALISATIONS'; color = '#c0392b'; icon = '🏥'; }
+                if (libLower.includes('couche adulte')) { cat = 'HOSPITALISATIONS'; color = '#c0392b'; icon = '🏥'; }
 
                 allItems.push({ id: p.id, libelle: p.libelle, prix: Number(p.prix_standard), type: 'ACTE', categorie: cat, color: color, icon: icon });
             });
@@ -300,8 +310,12 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             console.log("🔍 Loading admissions for patient:", patientId);
             const db = await getDb();
             const res = await db.select<any[]>(`
-            SELECT a.id, a.date_entree, a.nb_jours, l.nom_lit, 
-                   CAST(l.prix_journalier AS CHAR) as prix_journalier, c.nom as nom_chambre,
+            SELECT a.id, a.date_entree, a.nb_jours, a.mode_tarif, l.nom_lit, 
+                   CAST(l.prix_journalier AS CHAR) as prix_journalier, 
+                   CAST(l.prix_assurance AS CHAR) as prix_assurance,
+                   CAST(l.prix_ventile AS CHAR) as prix_ventile,
+                   CAST(l.prix_ventile_assurance AS CHAR) as prix_ventile_assurance,
+                   c.nom as nom_chambre,
                    a.statut
             FROM admissions a 
             LEFT JOIN lits l ON a.lit_id = l.id 
@@ -471,11 +485,16 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         const totalVerse = (montantVerse1 || 0) + (montantVerse2 || 0);
 
         // Les confirmations sont maintenant gérées par l'aperçu du reçu
+        // Les confirmations sont maintenant gérées par l'aperçu du reçu
         let finalMode = paymentStrategy === 'CREDIT_TOTAL' ? 'CRÉDIT' : modePaiement1;
+        if (['WAVE', 'ORANGE', 'MTN'].includes(modePaiement1) && refPaiement1) finalMode += ` (Ref: ${refPaiement1})`;
+
         if (modePaiement1 === 'CASH') finalMode = 'ESPÈCE';
+
         if (modePaiement2 !== 'AUCUN' && montantVerse2 > 0) {
             const mode2Label = modePaiement2 === 'CASH' ? 'ESPÈCE' : modePaiement2;
-            finalMode = `${finalMode} + ${mode2Label}`;
+            const ref2Label = (['WAVE', 'ORANGE', 'MTN'].includes(modePaiement2) && refPaiement2) ? ` (Ref: ${refPaiement2})` : '';
+            finalMode = `${finalMode} + ${mode2Label}${ref2Label}`;
         }
 
         try {
@@ -490,9 +509,10 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             const ratioPaiement = (totalNetPatient === 0) ? 1 : (totalVerse / totalNetPatient);
 
             // Génération du numéro de ticket
-            const datePart = (softwareDate || new Date().toISOString().split('T')[0]).replace(/-/g, '').slice(2);
-            const randomPart = Math.floor(Math.random() * 999).toString().padStart(3, '0');
-            const ticketNum = `TKT-${datePart}-${randomPart}`;
+            // Génération du numéro de ticket séquentiel global
+            const countGlobal = await db.select<any[]>("SELECT COUNT(DISTINCT numero_ticket) as count FROM ventes");
+            const nextSeq = (countGlobal[0]?.count || 0) + 1;
+            const ticketNum = nextSeq.toString();
 
             for (const item of panier) {
                 const totalItemDue = item.partPatientUnitaire * item.qte;
@@ -540,8 +560,8 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                 }
             }
 
-            // Imprimer le ticket automatiquement
-            imprimerTicketCaisse(ticketNum, finalMode);
+            // Imprimer le ticket automatiquement -> DESACTIVÉ (Géré par l'interface)
+            // imprimerTicketCaisse(ticketNum, finalMode);
 
             // alert("✅ Vente enregistrée !"); // Removed for immediate print
             setPanier([]);
@@ -550,8 +570,10 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             setSearchQuery("");
             setPaymentStrategy("COMPTANT");
             setModePaiement1("CASH");
+            setRefPaiement1("");
             setMontantVerse1(0);
             setModePaiement2("AUCUN");
+            setRefPaiement2("");
             setMontantVerse2(0);
             setSaleToReplace(null); // Reset replacement state
             chargerDonnees();
@@ -561,86 +583,11 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
     // --- TICKET PREVIEW & PRINT ---
 
 
-    const prepareTicketData = (ticketNum: string, modeP: string, itemsOverride?: CartItem[], totalOverride?: number): TicketData => {
-        const itemsToUse = itemsOverride || panier;
-        const totalToUse = totalOverride || totalNetPatient;
-
-        // Calculate Payment details
-        const totalVerse = (montantVerse1 || 0) + (montantVerse2 || 0);
-        let rendu = 0;
-        if (totalVerse > totalToUse) rendu = totalVerse - totalToUse;
-
-        return {
-            entreprise: {
-                nom_entreprise: entreprise?.nom_entreprise || 'CENTRE MEDICAL',
-                adresse: entreprise?.adresse || '',
-                telephone: entreprise?.telephone || ''
-            },
-            ticketNum: ticketNum,
-            dateVente: new Date(),
-            patient: patientSelectionne ? {
-                nom_prenoms: patientSelectionne.nom_prenoms,
-                numero_carnet: patientSelectionne.numero_carnet,
-                telephone: patientSelectionne.telephone,
-                nom_assurance: patientSelectionne.nom_assurance,
-                taux_couverture: patientSelectionne.taux_couverture
-            } : undefined,
-            personnel: personnelSelectionne ? {
-                nom_prenoms: personnelSelectionne.nom_prenoms
-            } : undefined,
-            caissier: currentUser?.nom_complet || 'Système',
-            items: itemsToUse.map(i => ({
-                libelle: i.libelle,
-                categorie: i.categorie,
-                qte: i.qte,
-                partPatientUnitaire: i.partPatientUnitaire
-            })),
-            totalBrut: itemsToUse.reduce((acc, i) => acc + (i.prixUnitaire * i.qte), 0),
-            totalPartAssureur: itemsToUse.reduce((acc, i) => acc + (i.partAssureurUnitaire * i.qte), 0),
-            totalNetPatient: totalToUse,
-            paiement: {
-                montantVerse: totalVerse,
-                rendu: rendu,
-                mode: modeP
-            },
-            insForm: insForm.societeId ? {
-                societeId: insForm.societeId,
-                matricule: insForm.matricule,
-                numeroBon: insForm.numeroBon,
-                societeNom: allSocietes.find(s => s.id.toString() === insForm.societeId)?.nom_societe
-            } : undefined
-        };
-    };
 
 
 
-    const imprimerTicketCaisse = (ticketNum: string, modeP: string) => {
-        const data = prepareTicketData(ticketNum, modeP);
-        const html = generateTicketHTML(data);
 
-        // Create hidden iframe for printing
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'absolute';
-        iframe.style.width = '0px';
-        iframe.style.height = '0px';
-        iframe.style.border = 'none';
-        document.body.appendChild(iframe);
 
-        const doc = iframe.contentWindow?.document;
-        if (doc) {
-            doc.open();
-            doc.write(html);
-            doc.write(`<script>window.onload = function() { setTimeout(() => { window.print(); }, 500); };</script>`);
-            doc.close();
-
-            // Cleanup after 60s
-            setTimeout(() => {
-                if (document.body.contains(iframe)) {
-                    document.body.removeChild(iframe);
-                }
-            }, 60000);
-        }
-    };
     const recupererTransfert = async (transferId: number) => {
         try {
             const db = await getDb();
@@ -801,13 +748,26 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                 <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', alignContent: 'start', gap: '15px' }}>
                     {(selectedCategory === 'TOUT' || selectedCategory === 'HOSPITALISATIONS') && admissions.map(adm => {
                         const count = getQtyInCatalog(adm.id, 'HOSPITALISATION');
+
+                        // 1. CALCUL DU PRIX RÉEL (Logique: Ventilé/Clim & Assur/Cash)
+                        const hasAssur = patientSelectionne && (patientSelectionne.taux_couverture || 0) > 0;
+                        const isVentile = adm.mode_tarif === 'VENTILE';
+
+                        let prixChambre = parseFloat(adm.prix_journalier) || 0;
+                        if (hasAssur) {
+                            prixChambre = isVentile ? (parseFloat(adm.prix_ventile_assurance) || parseFloat(adm.prix_ventile) || prixChambre) : (parseFloat(adm.prix_assurance) || prixChambre);
+                        } else {
+                            prixChambre = isVentile ? (parseFloat(adm.prix_ventile) || prixChambre) : prixChambre;
+                        }
+
                         return (
                             <div key={'adm' + adm.id} onClick={() => {
                                 if (count === 0) {
+                                    // A. Ajout Chambre avec le prix CALCULÉ
                                     ajouterAuPanier({
                                         id: adm.id,
                                         libelle: `Séjour ${adm.nom_chambre} / ${adm.nom_lit}`,
-                                        prix: adm.prix_journalier,
+                                        prix: prixChambre,
                                         type: 'HOSPITALISATION',
                                         categorie: 'HOSPITALISATIONS',
                                         color: '#c0392b',
@@ -818,7 +778,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '1.4rem' }}>🛏️</span>{count > 0 && <span style={badgeStyle}>✅</span>}</div>
                                 <div style={{ fontWeight: 'bold', fontSize: '0.85rem', margin: '4px 0' }}>Séjour {adm.nom_chambre}</div>
                                 <div style={{ fontSize: '0.75rem', color: '#7f8c8d' }}>{adm.nb_jours} jours</div>
-                                <div style={{ fontWeight: 'bold', marginTop: 'auto', color: '#c0392b', fontSize: '0.9rem' }}>{(adm.nb_jours * adm.prix_journalier).toLocaleString()} F</div>
+                                <div style={{ fontWeight: 'bold', marginTop: 'auto', color: '#c0392b', fontSize: '0.9rem' }}>{(adm.nb_jours * prixChambre).toLocaleString()} F</div>
                             </div >
                         );
                     })}
@@ -1009,8 +969,10 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                 onClick={() => {
                                     setPaymentStrategy('PARTIEL');
                                     setModePaiement1('CASH');
+                                    setRefPaiement1("");
                                     setMontantVerse1(totalNetPatient / 2);
-                                    setModePaiement2('AUCUN');
+                                    setModePaiement2("AUCUN");
+                                    setRefPaiement2("");
                                     setMontantVerse2(0);
                                 }}
                                 style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #ddd', background: paymentStrategy === 'PARTIEL' ? '#3498db' : 'white', color: paymentStrategy === 'PARTIEL' ? 'white' : '#333', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
@@ -1047,6 +1009,14 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                     placeholder="Montant"
                                 />
                             </div>
+                            {['WAVE', 'ORANGE', 'MTN'].includes(modePaiement1) && (
+                                <input
+                                    value={refPaiement1}
+                                    onChange={e => setRefPaiement1(e.target.value)}
+                                    placeholder="Référence Transaction / N° Tel"
+                                    style={{ ...inputS, padding: '10px', fontSize: '0.9rem', marginTop: '5px', width: '100%', border: '1px dashed #3498db', background: '#f0f8ff' }}
+                                />
+                            )}
                         </div>
                     )}
 
@@ -1077,6 +1047,14 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                     placeholder="Montant"
                                 />
                             </div>
+                            {['WAVE', 'ORANGE', 'MTN'].includes(modePaiement2) && (
+                                <input
+                                    value={refPaiement2}
+                                    onChange={e => setRefPaiement2(e.target.value)}
+                                    placeholder="Référence Transaction / N° Tel"
+                                    style={{ ...inputS, padding: '10px', fontSize: '0.9rem', marginTop: '5px', width: '100%', border: '1px dashed #3498db', background: '#f0f8ff' }}
+                                />
+                            )}
                         </div>
                     )}
 
@@ -1204,6 +1182,15 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                         <span>{((montantVerse1 || 0) + (montantVerse2 || 0)).toLocaleString()} F</span>
                                     </div>
 
+                                    {/* MODE DETAIL */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '10px', color: '#555' }}>
+                                        <span>Mode:</span>
+                                        <span style={{ textAlign: 'right' }}>
+                                            {modePaiement1}{refPaiement1 ? ` (${refPaiement1})` : ''}
+                                            {modePaiement2 !== 'AUCUN' ? ` + ${modePaiement2}${refPaiement2 ? ` (${refPaiement2})` : ''}` : ''}
+                                        </span>
+                                    </div>
+
                                     {/* LOGIC RENDU / RESTE */}
                                     {(totalNetPatient - ((montantVerse1 || 0) + (montantVerse2 || 0))) > 0 ? (
                                         <div style={{ display: 'flex', justifyContent: 'space-between', color: 'red' }}>
@@ -1230,8 +1217,9 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                 <button
                                     onClick={async () => {
                                         await validerPaiement();
-                                        const hasAssurance = panier.some(i => i.useAssurance);
-                                        imprimerRecu(hasAssurance ? 2 : 1);
+                                        // const hasAssurance = panier.some(i => i.useAssurance);
+                                        // Force ONE copy as requested
+                                        imprimerRecu(1);
                                         setShowReceiptPreview(false);
                                     }}
                                     style={{ flex: 2, padding: '12px', borderRadius: '8px', border: 'none', background: '#27ae60', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}

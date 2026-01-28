@@ -52,11 +52,15 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
     // PAYMENT FORM
     const [paymentAmount, setPaymentAmount] = useState<string>("");
     const [paymentMode, setPaymentMode] = useState("ESPECES");
+    // const [mobileProvider, setMobileProvider] = useState("WAVE"); // Removed as requested
     const [paymentRef, setPaymentRef] = useState("");
 
     // HISTORY DATA
     const [history, setHistory] = useState<RecoveryHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
+
+    // PREVIEW STATE
+    const [previewHtml, setPreviewHtml] = useState<string | null>(null);
 
     // EDIT MODAL STATE
     const [showEditModal, setShowEditModal] = useState(false);
@@ -297,13 +301,68 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
         } catch (e) { console.error(e); alert("Erreur modification"); }
     };
 
-    const handleSmartPayment = async () => {
+    const simulateDistribution = (amount: number) => {
+        if (!selectedDebiteur) return null;
+        const paidItems: { date: string, libelle: string, montant: number }[] = [];
+        let remain = amount;
+        let totalPaid = 0;
+
+        for (const vente of selectedDebiteur.ventes) {
+            if (remain <= 0) break;
+            const detteVente = vente.reste_a_payer;
+            const payeSurVente = Math.min(remain, detteVente);
+
+            paidItems.push({
+                date: new Date(vente.date_vente).toLocaleDateString(),
+                libelle: vente.acte_libelle,
+                montant: payeSurVente
+            });
+            remain -= payeSurVente;
+            totalPaid += payeSurVente;
+        }
+
+        return {
+            paidItems,
+            totalPaid,
+            oldBalance: selectedDebiteur.total_dette
+        };
+    };
+
+
+
+    const handlePreview = async () => {
         if (!selectedDebiteur || !paymentAmount) return;
         const amount = parseFloat(paymentAmount);
         if (isNaN(amount) || amount <= 0) return alert("Montant invalide");
-        if (amount > selectedDebiteur.total_dette) return alert("Le montant dépasse la dette totale !");
 
-        if (!confirm(`Confirmer le recouvrement de ${amount.toLocaleString()} F pour ${selectedDebiteur.nom} ?`)) return;
+        const sim = simulateDistribution(amount);
+        if (!sim) return;
+
+        const modeStr = paymentMode;
+
+        // GENERATE HTML AND SHOW MODAL
+        const company = await getCompanyInfo();
+        const html = generateReceiptHtml({
+            recovId: "APERÇU",
+            debiteurNom: selectedDebiteur.nom,
+            debiteurType: selectedDebiteur.type,
+            items: sim.paidItems,
+            totalPaid: sim.totalPaid,
+            oldBalance: sim.oldBalance,
+            mode: modeStr,
+            ref: paymentRef || "PREVIEW"
+        }, company);
+
+        setPreviewHtml(html);
+    };
+
+    const handleSmartPayment = async () => {
+        // NOTE: This function is now called AFTER the Preview Modal confirmation
+        if (!selectedDebiteur || !paymentAmount) return;
+        const amount = parseFloat(paymentAmount);
+
+        // Remove browser confirm, as the Modal IS the confirmation
+        // if (!confirm(...)) return; 
 
         try {
             const db = await getDb();
@@ -311,45 +370,56 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
             let remain = amount;
             const dettesInitiales = selectedDebiteur.total_dette;
 
-            // ID Generation
-            const datePart = new Date().toISOString().split('T')[0].replace(/-/g, '');
-            const randPart = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-            const recovId = `REC-${datePart}-${randPart}`;
+            // ID Generation (Standard TICKET format)
+            const datePart = new Date().toISOString().split('T')[0].replace(/-/g, '').slice(2);
+            const randPart = Math.floor(Math.random() * 999).toString().padStart(3, '0');
+            const recovId = `TKT-${datePart}-${randPart}`;
 
-            // 1. Insert Caisse Mouvement FIRST to get ID
+            // 1. Insert Caisse Mouvement (Cash Flow)
             const dateParams = await db.select<any[]>("SELECT date_systeme_actuelle FROM app_parametres_app LIMIT 1");
             const dateTravail = dateParams[0]?.date_systeme_actuelle || new Date().toISOString().split('T')[0];
             const fullDate = `${dateTravail} ${new Date().toTimeString().split(' ')[0]}`;
 
+            const finalMode = paymentMode;
+
+            // A. INSERT NEW SALE - REMOVED (Recouvrement is not a Sale)
+            // The user requested that recoveries do not appear in the daily sales list.
+            // We only record the Cash Movement and update the original debts.
+
+            /* 
+            await db.execute(`
+                INSERT INTO ventes (
+                    patient_id, personnel_id, acte_libelle, montant_total, 
+                    part_patient, part_assureur, mode_paiement, statut, 
+                    reste_a_payer, type_vente, date_vente, numero_ticket, user_id
+                )
+                VALUES (?, ?, ?, ?, ?, 0, ?, 'PAYE', 0, 'RECOUVREMENT', ?, ?, ?)
+            `, [
+                selectedDebiteur.type === 'PATIENT' ? selectedDebiteur.id.replace('P-', '') : null,
+                selectedDebiteur.type === 'PERSONNEL' ? selectedDebiteur.id.replace('PERS-', '') : null,
+                `Recouvrement : ${selectedDebiteur.nom}`,
+                amount, amount, finalMode, fullDate, recovId, currentUser?.id || null
+            ]);
+            */
+
+            // B. INSERT CAISSE MOUVEMENT
             const resMvt = await db.execute(`
                 INSERT INTO caisse_mouvements (type, montant, date_mouvement, motif, mode_paiement, reference, user_id)
                 VALUES ('RECOUVREMENT', ?, ?, ?, ?, ?, ?)
-            `, [amount, fullDate, `Recouvrement : ${selectedDebiteur.nom}`, paymentMode, paymentRef || recovId, currentUser?.id || null]);
+            `, [amount, fullDate, `Recouvrement : ${selectedDebiteur.nom}`, finalMode, paymentRef || recovId, currentUser?.id || null]);
 
             const mvtId = resMvt.lastInsertId;
 
             // 2. Distribute and Track Details
             for (const vente of selectedDebiteur.ventes) {
                 if (remain <= 0) break;
-
-                const detteVente = vente.reste_a_payer;
-                const payeSurVente = Math.min(remain, detteVente);
+                const payeSurVente = Math.min(remain, vente.reste_a_payer);
                 const nouveauReste = vente.reste_a_payer - payeSurVente;
                 const nouveauStatut = nouveauReste < 5 ? 'PAYE' : 'CREDIT';
 
-                // LOG DEBT MODIFICATION
-                await db.execute(`
-                    INSERT INTO logs_modifications (table_name, record_id, field_name, old_value, new_value, user_id, motif)
-                    VALUES ('ventes', ?, 'reste_a_payer', ?, ?, ?, 'Recouvrement automatique')
-                `, [vente.id, vente.reste_a_payer, nouveauReste, currentUser?.id || 0]);
-
+                await db.execute(`INSERT INTO logs_modifications (table_name, record_id, field_name, old_value, new_value, user_id, motif) VALUES ('ventes', ?, 'reste_a_payer', ?, ?, ?, 'Recouvrement automatique')`, [vente.id, vente.reste_a_payer, nouveauReste, currentUser?.id || 0]);
                 await db.execute("UPDATE ventes SET reste_a_payer = ?, statut = ? WHERE id = ?", [nouveauReste, nouveauStatut, vente.id]);
-
-                // Track detail
-                await db.execute(`
-                    INSERT INTO caisse_recouvrements_details (caisse_mouvement_id, vente_id, montant_regle)
-                    VALUES (?, ?, ?)
-                `, [mvtId, vente.id, payeSurVente]);
+                await db.execute(`INSERT INTO caisse_recouvrements_details (caisse_mouvement_id, vente_id, montant_regle) VALUES (?, ?, ?)`, [mvtId, vente.id, payeSurVente]);
 
                 paidItems.push({
                     date: new Date(vente.date_vente).toLocaleDateString(),
@@ -359,19 +429,36 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
                 remain -= payeSurVente;
             }
 
-            // 3. Print
-            imprimerRecuRecouvrement({
+            // 3. SUCCESS & PRINT
+            // We use the same generation logic, but this time it's for the final print
+            const company = await getCompanyInfo();
+            const html = generateReceiptHtml({
                 recovId, debiteurNom: selectedDebiteur.nom, debiteurType: selectedDebiteur.type,
                 items: paidItems, totalPaid: amount, oldBalance: dettesInitiales,
-                mode: paymentMode, ref: paymentRef
-            });
+                mode: finalMode, ref: paymentRef
+            }, company);
 
-            alert("✅ Recouvrement succès !");
+            // Print via hidden iframe
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+            iframe.contentDocument?.write(html);
+            iframe.contentDocument?.close();
+            setTimeout(() => {
+                iframe.contentWindow?.print();
+                setTimeout(() => document.body.removeChild(iframe), 1000);
+            }, 500);
+
+            setPreviewHtml(null); // Close modal
             setSelectedDebiteur(null);
             setPaymentAmount("");
             loadCredits();
+            // alert("✅ Recouvrement enregistré et impression lancée."); // Optional notification
 
-        } catch (e) { console.error(e); alert("Erreur lors du recouvrement"); }
+        } catch (e) {
+            console.error(e);
+            alert("Erreur lors du recouvrement");
+        }
     };
 
     const handleDeleteRecovery = async (item: RecoveryHistoryItem) => {
@@ -455,109 +542,110 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
         }
     };
 
-    const imprimerRecuRecouvrement = async (data: any) => {
-        const company = await getCompanyInfo();
+    const generateReceiptHtml = (data: any, company: any) => {
         const dateStr = new Date().toLocaleString('fr-FR');
-        const newBalance = data.oldBalance - data.totalPaid;
 
-        const content = `
+
+        return `
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Reçu de Paiement ${data.recovId}</title>
+                    <title>Reçu ${data.recovId}</title>
                     <style>
-                        @page { size: A4; margin: 0; }
-                        body { font-family: 'Inter', sans-serif; font-size: 11px; color: #444; line-height: 1.4; margin: 15mm; padding: 0; }
-                        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
-                        .company-name { font-size: 16px; font-weight: 700; color: #2c3e50; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
-                        .company-sub { font-size: 10px; color: #7f8c8d; }
-                        .doc-title { font-size: 18px; font-weight: 600; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
-
-                        .meta-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #f0f0f0; }
-                        .meta-item label { display: block; font-size: 9px; text-transform: uppercase; color: #999; margin-bottom: 2px; letter-spacing: 0.5px; }
-                        .meta-item span { display: block; font-size: 12px; font-weight: 600; color: #333; }
-
-                        table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
-                        th { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; background: #fdfdfd; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; }
-                        td { padding: 7px 10px; border-bottom: 1px solid #f9f9f9; color: #444; }
-                        tr:last-child td { border-bottom: none; }
-
-                        .total-section { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; margin-top: 20px; }
-                        .total-row { display: flex; justify-content: space-between; width: 200px; font-size: 11px; }
-                        .total-box { padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: bold; background: #f9f9f9; border: 1px solid #eee; color: #2c3e50; margin-top: 10px; text-align: center; }
-
-                        .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; color: #aaa; border-top: 1px solid #f5f5f5; padding-top: 10px; }
+                        @page { size: 80mm auto; margin: 0; }
+                        body { margin: 0; padding: 5mm; font-family: 'Courier New', monospace; width: 80mm; background: white; color: black; box-sizing: border-box; font-size: 11px; }
+                        .center { text-align: center; }
+                        .bold { font-weight: bold; }
+                        .dashed { margin: 10px 0; border-bottom: 1px dashed #000; }
+                        .fs-11 { font-size: 11px; }
+                        .fs-12 { font-size: 12px; }
+                        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+                        th { text-align: left; border-bottom: 2px solid #000; padding: 5px 0; }
+                        td { vertical-align: top; padding-top: 5px; padding-bottom: 5px; border-bottom: none; }
+                        .right { text-align: right; }
+                        
+                        @media print {
+                            body { margin: 0; padding: 5mm; width: 100%; }
+                        }
                     </style>
-                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
                 </head>
                 <body>
-                    <div class="header">
-                        <div>
-                            <div class="company-name">${company.nom}</div>
-                            <div class="company-sub">${company.adresse || ''}
-${company.telephone ? 'Tel: ' + company.telephone : ''}
-${company.email ? 'Email: ' + company.email : ''}</div>
+                <div class="center" style="margin-bottom: 20px;">
+                        <div class="bold" style="font-size: 16px;">${company.nom || 'CENTRE MEDICAL'}</div>
+                        <div class="fs-12">${company.adresse || ''}</div>
+                        <div class="fs-12">${company.telephone ? 'Tel: ' + company.telephone : ''}</div>
+                        <div class="dashed"></div>
+                        <div class="bold" style="font-size: 14px;">REÇU DE RECOUVREMENT</div>
+                        <div class="fs-11">Date: ${dateStr}</div>
+                        <div class="fs-11">Réf: ${data.recovId}</div>
+                        <div class="dashed"></div>
+                    </div>
+                    
+                    <div style="margin-bottom: 15px;" class="fs-11">
+                        <div><strong>Client:</strong> ${data.debiteurNom}</div>
+                        <div><strong>Type:</strong> ${data.debiteurType}</div>
+                        <div><strong>Caissier:</strong> ${currentUser?.nom_complet || 'Système'}</div>
+                    </div>
+
+                    <div style="background: #f0f0f0; padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #ddd;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span>DETTE INITIALE:</span>
+                            <strong style="font-size: 13px;">${data.oldBalance.toLocaleString()} F</strong>
                         </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Reçu de Paiement</div>
-                            <div class="doc-title">${data.recovId}</div>
+                         <div style="display: flex; justify-content: space-between; margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px dashed #999;">
+                            <span>MONTANT VERSÉ:</span>
+                            <strong style="font-size: 14px; color: black;">- ${data.totalPaid.toLocaleString()} F</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
+                            <span>NOUVEAU SOLDE DÛ:</span>
+                            <span>${(data.oldBalance - data.totalPaid).toLocaleString()} F</span>
                         </div>
                     </div>
 
-                    <div class="meta-grid">
-                        <div class="meta-item">
-                            <label>Débiteur</label>
-                            <span>${data.debiteurNom} (${data.debiteurType})</span>
-                        </div>
-                        <div class="meta-item">
-                            <label>Date Paiement</label>
-                            <span>${dateStr}</span>
-                        </div>
-                        <div class="meta-item">
-                            <label>Mode de Paiement</label>
-                            <span>${data.mode}</span>
-                        </div>
-                    </div>
+                    <div class="dashed"></div>
+                    <div style="font-weight: bold; margin-bottom: 5px; font-size: 10px; text-transform: uppercase;">Détails des imputations :</div>
 
                     <table>
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Motif / Acte</th>
-                                <th style="text-align: right;">Montant Réglé</th>
+                                <th>Date/Désignation</th>
+                                <th class="right">Réglé</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${data.items.map((item: any) => `
                                 <tr>
-                                    <td>${item.date}</td>
-                                    <td>${item.libelle}</td>
-                                    <td style="text-align: right;">${item.montant.toLocaleString()} F</td>
+                                    <td style="padding-top: 5px; padding-bottom: 5px; border-bottom: 1px dashed #eee; vertical-align: top;">
+                                        <div style="font-weight: 600;">${item.libelle}</div>
+                                        <div style="font-size: 9px; color: #555;">Date: ${item.date}</div>
+                                    </td>
+                                    <td style="text-align: right; vertical-align: top; padding-top: 5px; border-bottom: 1px dashed #eee;">
+                                        ${item.montant.toLocaleString()} F
+                                    </td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>
 
-                    <div class="total-section">
-                        <div class="total-row">
-                            <span>Dette Initiale:</span>
-                            <span>${data.oldBalance.toLocaleString()} F</span>
-                        </div>
-                         <div class="total-row">
-                            <span>Nouveau Solde:</span>
-                            <span>${newBalance.toLocaleString()} F</span>
-                        </div>
-                        <div class="total-box">
-                            TOTAL VERSÉ : ${data.totalPaid.toLocaleString()} F
+                    <div style="margin-top: 20px; text-align: right; font-size: 11px;">
+                        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                            <span>Mode de Paiement:</span>
+                            <strong>${data.mode}${data.ref && data.ref !== data.recovId && data.ref !== 'PREVIEW' ? ' (' + data.ref + ')' : ''}</strong>
                         </div>
                     </div>
-
-                    <div class="footer">
-                        Imprimé le ${new Date().toLocaleString('fr-FR')} par ${currentUser?.nom_complet || 'Système'}
+                    
+                    <div class="center" style="margin-top: 30px; font-size: 11px; font-style: italic; color: #777;">
+                        <div>Merci de votre confiance !</div>
+                        <div>${new Date().getFullYear()} © Centre Médical</div>
                     </div>
                 </body>
                 </html>
         `;
+    };
+
+    const imprimerRecuRecouvrement = async (data: any) => {
+        const company = await getCompanyInfo();
+        const content = generateReceiptHtml(data, company);
 
         const iframe = document.createElement('iframe');
         iframe.style.position = 'fixed';
@@ -587,10 +675,11 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
     const totalGlobal = filteredDebiteurs.reduce((acc, d) => acc + d.total_dette, 0);
 
     return (
-        <div style={{ padding: '25px', height: '100%', display: 'flex', flexDirection: 'column', fontFamily: '"Inter", sans-serif', background: '#f8f9fa' }}>
+        <div style={{ padding: '25px', height: '100%', display: 'flex', flexDirection: 'column', fontFamily: '"Inter", sans-serif', background: '#f8f9fa' }} >
 
             {/* HEADER */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            < div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }
+            }>
                 <div>
                     <h1 style={{ margin: 0, color: '#2c3e50', fontSize: '24px' }}>💸 Recouvrement {loading && <span style={{ fontSize: '14px', color: '#e67e22', verticalAlign: 'middle' }}>(Chargement...)</span>}</h1>
                 </div>
@@ -598,7 +687,7 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                     <button onClick={() => setView('LIST')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', background: view === 'LIST' ? '#3498db' : 'transparent', color: view === 'LIST' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold' }}>Liste Débiteurs</button>
                     <button onClick={() => setView('HISTORY')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', background: view === 'HISTORY' ? '#3498db' : 'transparent', color: view === 'HISTORY' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold' }}>Historique</button>
                 </div>
-            </div>
+            </div >
 
             {view === 'LIST' ? (
                 <>
@@ -691,11 +780,18 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                                     <option value="ESPECES">Espèces</option>
                                     <option value="CHEQUE">Chèque</option>
                                     <option value="VIREMENT">Virement</option>
-                                    <option value="MOBILE">Mobile Money</option>
+                                    <option value="WAVE">Wave</option>
+                                    <option value="MTN MONEY">MTN Money</option>
+                                    <option value="ORANGE MONEY">Orange Money</option>
+                                    <option value="MOOV MONEY">Moov Money</option>
                                 </select>
                                 <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)} placeholder="Ref..." style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
                             </div>
-                            <button onClick={handleSmartPayment} style={{ width: '100%', padding: '15px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>CONFIRMER</button>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button onClick={handlePreview} style={{ flex: 1, padding: '15px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>VALIDER & APERÇU</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )
@@ -723,7 +819,10 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                                     <option value="ESPECES">Espèces</option>
                                     <option value="CHEQUE">Chèque</option>
                                     <option value="VIREMENT">Virement</option>
-                                    <option value="MOBILE">Mobile Money</option>
+                                    <option value="WAVE">Wave</option>
+                                    <option value="ORANGE MONEY">Orange Money</option>
+                                    <option value="MTN MONEY">MTN Money</option>
+                                    <option value="MOOV MONEY">Moov Money</option>
                                     <option value="CB">Carte Bancaire</option>
                                 </select>
                             </div>
@@ -736,6 +835,30 @@ ${company.email ? 'Email: ' + company.email : ''}</div>
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                                 <button onClick={() => setShowEditModal(false)} style={{ padding: '10px 20px', borderRadius: '5px', border: 'none', background: '#ccc', cursor: 'pointer' }}>Annuler</button>
                                 <button onClick={saveEditHistory} style={{ padding: '10px 20px', borderRadius: '5px', border: 'none', background: '#3498db', color: 'white', cursor: 'pointer' }}>Enregistrer</button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+            {/* PREVIEW MODAL */}
+            {
+                previewHtml && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}>
+                        <div style={{ background: '#525659', borderRadius: '10px', padding: '0', width: '400px', height: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '15px', background: '#323639', color: 'white' }}>
+                                <span style={{ fontWeight: 'bold' }}>Confirmation du Recouvrement</span>
+                                <button onClick={() => setPreviewHtml(null)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+                            </div>
+                            <div style={{ flex: 1, background: 'white', overflow: 'hidden', display: 'flex', justifyContent: 'center', padding: '20px', overflowY: 'auto' }}>
+                                <iframe
+                                    srcDoc={previewHtml}
+                                    style={{ width: '80mm', height: '100%', border: 'none', background: 'white', boxShadow: '0 0 10px rgba(0,0,0,0.5)' }}
+                                    title="Ticket Preview"
+                                />
+                            </div>
+                            <div style={{ padding: '15px', background: '#323639', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                                <button onClick={() => setPreviewHtml(null)} style={{ padding: '10px 20px', borderRadius: '5px', border: '1px solid #7f8c8d', background: 'transparent', color: '#ecf0f1', cursor: 'pointer' }}>Annuler</button>
+                                <button onClick={handleSmartPayment} style={{ padding: '10px 20px', borderRadius: '5px', border: 'none', background: '#27ae60', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>✅ CONFIRMER & IMPRIMER</button>
                             </div>
                         </div>
                     </div>

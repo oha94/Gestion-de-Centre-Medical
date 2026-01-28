@@ -12,7 +12,9 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
     const [assurances, setAssurances] = useState<any[]>([]);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
     const [selectedTicketDetails, setSelectedTicketDetails] = useState<any>(null);
+
     const [globalTicketMap, setGlobalTicketMap] = useState<Record<string, number>>({});
+    const [previewHtml, setPreviewHtml] = useState<string | null>(null);
 
     useEffect(() => {
         chargerDonnees();
@@ -76,6 +78,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                 LEFT JOIN personnel pers ON v.personnel_id = pers.id
                 LEFT JOIN app_utilisateurs u ON v.user_id = u.id
                 WHERE date(v.date_vente) >= date(?) AND date(v.date_vente) <= date(?)
+                AND v.type_vente != 'RECOUVREMENT'
                 ORDER BY v.date_vente DESC, v.id DESC
             `, [dateDebut, dateFin]);
             setVentes(res);
@@ -238,9 +241,8 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
     const ticketList = Object.values(tickets).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     // --- PRINTING UTILS ---
-    const imprimerTicketVente = (ticket: any) => {
+    const generateTicketHTML = (ticket: any) => {
         const dateStr = new Date(ticket.date).toLocaleString('fr-FR');
-
         const itemsRows = ticket.items.map((it: any) => `
             <tr>
                 <td>${it.acte_libelle}</td>
@@ -248,7 +250,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
             </tr>
         `).join('');
 
-        const content = `
+        return `
             <!DOCTYPE html>
             <html>
             <head>
@@ -302,7 +304,14 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
             </body>
             </html>
         `;
+    };
 
+    const handlePreviewTicket = (ticket: any) => {
+        const html = generateTicketHTML(ticket);
+        setPreviewHtml(html);
+    };
+
+    const printHtml = (html: string) => {
         const iframe = document.createElement('iframe');
         iframe.style.position = 'fixed';
         iframe.style.right = '0';
@@ -315,7 +324,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
         const doc = iframe.contentWindow?.document;
         if (doc) {
             doc.open();
-            doc.write(content);
+            doc.write(html);
             doc.close();
             iframe.contentWindow?.focus();
             setTimeout(() => {
@@ -417,7 +426,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
 
                                             {/* Allow if undefined or true */}
                                             {(currentUser?.can_print !== false && currentUser?.can_print !== 0) && (
-                                                <button onClick={() => imprimerTicketVente(t)} title="Imprimer Ticket" style={{ ...actionBtn, background: '#e0f2fe', color: '#0284c7' }}>
+                                                <button onClick={() => handlePreviewTicket(t)} title="Imprimer Ticket (Aperçu)" style={{ ...actionBtn, background: '#e0f2fe', color: '#0284c7' }}>
                                                     🖨️
                                                 </button>
                                             )}{!!currentUser?.can_delete && (
@@ -489,12 +498,35 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                         </div>
 
                         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                            <button onClick={() => imprimerTicketVente(selectedTicketDetails)} style={{ background: '#f1c40f', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
+                            <button onClick={() => handlePreviewTicket(selectedTicketDetails)} style={{ background: '#f1c40f', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
                                 🖨️ Imprimer Reçu
                             </button>
                             <button onClick={() => setShowDetailsModal(false)} style={{ background: '#bdc3c7', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>
                                 Fermer
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* PREVIEW MODAL */}
+            {previewHtml && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}>
+                    <div style={{ background: '#525659', borderRadius: '10px', padding: '0', width: '400px', height: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '15px', background: '#323639', color: 'white' }}>
+                            <span style={{ fontWeight: 'bold' }}>Aperçu Ticket (80mm)</span>
+                            <button onClick={() => setPreviewHtml(null)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+                        </div>
+                        <div style={{ flex: 1, background: 'white', overflow: 'hidden', display: 'flex', justifyContent: 'center', padding: '20px', overflowY: 'auto' }}>
+                            <iframe
+                                srcDoc={previewHtml}
+                                style={{ width: '80mm', height: '100%', border: 'none', background: 'white', boxShadow: '0 0 10px rgba(0,0,0,0.5)' }}
+                                title="Ticket Preview"
+                            />
+                        </div>
+                        <div style={{ padding: '15px', background: '#323639', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                            <button onClick={() => setPreviewHtml(null)} style={{ padding: '10px 20px', borderRadius: '5px', border: '1px solid #7f8c8d', background: 'transparent', color: '#ecf0f1', cursor: 'pointer' }}>Annuler</button>
+                            <button onClick={() => { printHtml(previewHtml); setPreviewHtml(null); }} style={{ padding: '10px 20px', borderRadius: '5px', border: 'none', background: '#27ae60', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ IMPRIMER</button>
                         </div>
                     </div>
                 </div>

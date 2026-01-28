@@ -138,7 +138,7 @@ CREATE TABLE `app_parametres_entreprise` (
   `nif` varchar(100) DEFAULT NULL,
   `rccm` varchar(100) DEFAULT NULL,
   `registre_commerce` varchar(100) DEFAULT NULL,
-  `logo_url` varchar(255) DEFAULT NULL,
+  `logo_url` longtext DEFAULT NULL,
   `slogan` text DEFAULT NULL,
   `description` text DEFAULT NULL,
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()

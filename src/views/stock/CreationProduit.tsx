@@ -206,7 +206,7 @@ export default function CreationProduit({ refresh }: { refresh: () => void }) {
                 <tr key={a.id} style={{ ...trStyle, background: editingId === a.id ? '#fff9db' : 'transparent' }}>
                   <td style={tdStyle}><code style={{ color: '#e67e22' }}>{a.cip}</code></td>
                   <td style={tdStyle}><strong>{a.designation}</strong></td>
-                  <td style={tdStyle}><span style={rayonBadge}>{a.nom_rayon || 'Non classé'}</span></td>
+                  <td style={tdStyle}><span style={rayonBadge}>{a.nom_rayon || (a.rayon_id ? `ID: ${a.rayon_id}` : 'Non classé')}</span></td>
                   <td style={tdStyle}>{a.prix_achat.toLocaleString()} F</td>
                   <td style={tdStyle}><strong>{a.prix_vente.toLocaleString()} F</strong></td>
                   <td style={{ ...tdStyle, textAlign: 'center' }}>

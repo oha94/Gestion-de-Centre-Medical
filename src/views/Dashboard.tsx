@@ -47,17 +47,17 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
       // 1. Définir la période
       if (period === "JOUR") {
         const dateTravail = await DateTravailManager.getDateTravail();
-        dateCondition = `DATE(v.date_vente) = '${dateTravail}'`;
+        dateCondition = `DATE(v.date_vente) = '${dateTravail}' AND v.type_vente != 'RECOUVREMENT'`;
         cmDateCondition = `DATE(date_mouvement) = '${dateTravail}'`;
       } else if (period === "SEMAINE") {
-        dateCondition = `v.date_vente >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`;
+        dateCondition = `v.date_vente >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND v.type_vente != 'RECOUVREMENT'`;
         cmDateCondition = `date_mouvement >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`;
       } else if (period === "MOIS") {
-        dateCondition = `v.date_vente >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
+        dateCondition = `v.date_vente >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND v.type_vente != 'RECOUVREMENT'`;
         cmDateCondition = `date_mouvement >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
       } else {
         // CUSTOM
-        dateCondition = `DATE(v.date_vente) BETWEEN '${customDates.start}' AND '${customDates.end}'`;
+        dateCondition = `DATE(v.date_vente) BETWEEN '${customDates.start}' AND '${customDates.end}' AND v.type_vente != 'RECOUVREMENT'`;
         cmDateCondition = `DATE(date_mouvement) BETWEEN '${customDates.start}' AND '${customDates.end}'`;
       }
 
@@ -65,7 +65,7 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
       const resGlobal = await db.select<any[]>(`
         SELECT
             CAST(SUM(montant_total) AS CHAR) as ca,
-            CAST(SUM(part_patient) AS CHAR) as cash,
+            CAST(SUM(part_patient - reste_a_payer) AS CHAR) as cash,
             CAST(SUM(part_assureur + reste_a_payer) AS CHAR) as credit,
             COUNT(DISTINCT patient_id) as patients
         FROM ventes v
@@ -113,29 +113,35 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
             CASE 
                 WHEN v.type_vente = 'HOSPITALISATION' THEN 'HOSP'
                 WHEN v.type_vente = 'MEDICAMENT' THEN 'PHARMA'
-                WHEN v.acte_libelle LIKE '%CONSULTATION%' THEN 'CONSULT'
+                WHEN v.acte_libelle LIKE '%CONSULTATION%' OR v.acte_libelle LIKE '%VISITE%' OR v.acte_libelle LIKE '%GENERALISTE%' THEN 'CONSULT'
                 WHEN v.acte_libelle LIKE '%SOIN%' OR v.acte_libelle LIKE '%INJECTION%' OR v.acte_libelle LIKE '%PANSEMENT%' THEN 'SOINS'
                 ELSE 'LABO'
             END as cat,
             COUNT(*) as count,
             CAST(SUM(v.montant_total) AS CHAR) as montant,
-            CAST(SUM(v.part_patient) AS CHAR) as cash,
+            CAST(SUM(v.part_patient - v.reste_a_payer) AS CHAR) as cash,
             CAST(SUM(v.part_assureur + v.reste_a_payer) AS CHAR) as credit
         FROM ventes v
         WHERE ${dateCondition}
         GROUP BY cat
       `);
 
+      // ... (Pharma Calculation and other code remains same) ...
+
+      // 5. ... (Bottom of function) ...
+
+
+
       // 4b. Calcul Financier Pharmacie (Vente, Achat, Marge)
       const resPharmaSales = await db.select<any[]>(`
-        SELECT 
-            v.acte_libelle, 
-            v.montant_total, 
-            a.prix_achat
-        FROM ventes v
-        LEFT JOIN stock_articles a ON v.article_id = a.id
-        WHERE v.type_vente = 'MEDICAMENT' AND ${dateCondition}
-      `);
+          SELECT
+          v.acte_libelle,
+          v.montant_total,
+          a.prix_achat
+          FROM ventes v
+          LEFT JOIN stock_articles a ON v.article_id = a.id
+          WHERE v.type_vente = 'MEDICAMENT' AND ${dateCondition}
+          `);
 
       let pVente = 0;
       let pAchat = 0;
@@ -181,12 +187,12 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
 
       // 6. Audit Trail
       const resAudit = await db.select<any[]>(`
-        SELECT v.id, v.acte_libelle, v.montant_total, v.date_vente, u.nom_complet as user
-        FROM ventes v
-        LEFT JOIN app_utilisateurs u ON v.user_id = u.id
-        ORDER BY v.date_vente DESC
-        LIMIT 8
-      `);
+          SELECT v.id, v.acte_libelle, v.montant_total, v.date_vente, u.nom_complet as user
+          FROM ventes v
+          LEFT JOIN app_utilisateurs u ON v.user_id = u.id
+          ORDER BY v.date_vente DESC
+          LIMIT 8
+          `);
 
       setStats({
         caTotal: parseFloat(resGlobal[0]?.ca || "0"),
@@ -232,14 +238,14 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
       // Cas Spécial: Stock Pharmacie
       if (category === 'STOCK_PHARMA') {
         const query = `
-          SELECT 
-            designation as libelle,
-            quantite_stock as qte, 
-            prix_vente as prix,
-            (quantite_stock * prix_vente) as total
+          SELECT
+          designation as libelle,
+          quantite_stock as qte,
+          prix_vente as prix,
+          (quantite_stock * prix_vente) as total
           FROM stock_articles
           ORDER BY designation ASC
-        `;
+          `;
         const res = await db.select<any[]>(query);
         setDetailData(res);
         setLoadingDetails(false);
@@ -272,21 +278,21 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
       }
 
       const query = `
-        SELECT 
-          v.id, 
-          v.date_vente, 
-          v.acte_libelle, 
-          v.montant_total, 
-          v.part_patient, 
+          SELECT
+          v.id,
+          v.date_vente,
+          v.acte_libelle,
+          v.montant_total,
+          v.part_patient,
           (v.part_assureur + v.reste_a_payer) as credit,
           p.nom_prenoms as patient,
           u.nom_complet as user
-        FROM ventes v
-        LEFT JOIN patients p ON v.patient_id = p.id
-        LEFT JOIN app_utilisateurs u ON v.user_id = u.id
-        WHERE ${dateCondition} AND ${catCondition}
-        ORDER BY v.date_vente DESC
-      `;
+          FROM ventes v
+          LEFT JOIN patients p ON v.patient_id = p.id
+          LEFT JOIN app_utilisateurs u ON v.user_id = u.id
+          WHERE ${dateCondition} AND ${catCondition}
+          ORDER BY v.date_vente DESC
+          `;
 
       const res = await db.select<any[]>(query);
       setDetailData(res);
@@ -317,9 +323,12 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
   /* ------------------------------------------------------------------- */
 
   const getStat = (key: string) => stats.details?.[key] || { count: 0, montant: 0, cash: 0, credit: 0 };
-  const soldeTheorique = (stats.caCash + stats.recouvrementTotal) - stats.decaissementTotal;
+  // Solde Caisse = Cash Vente - Décaissements (Exclut Recouvrements sur demande user)
+  const soldeTheorique = stats.caCash - stats.decaissementTotal;
 
-  const diffCaSolde = stats.caTotal - soldeTheorique;
+  // ECART CAISSE = Solde Théorique (Systeme) - Versements Déclarés (Physique)
+  // Positive = Manque en caisse (Theft/Loss). Negative = Trop perçu.
+  const ecartCaisse = soldeTheorique - stats.versementTotal;
 
   return (
     <div style={{ padding: '20px', background: '#f8f9fa', minHeight: '100%', fontFamily: '"Inter", sans-serif', position: 'relative' }}>
@@ -362,9 +371,9 @@ export default function DashboardView({ setView }: { setView: (v: string) => voi
       {/* KPIS */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '20px' }}>
         <KpiCard title="Chiffre d'Affaires" value={`${stats.caTotal.toLocaleString()} Fr`} sub={`Cash: ${stats.caCash.toLocaleString()} | Crédit: ${stats.caCredit.toLocaleString()}`} icon="💰" color="#3b82f6" onClick={() => setView('caisse')} />
-        <KpiCard title="Solde Caisse" value={`${soldeTheorique.toLocaleString()} Fr`} sub="Cash + Recouv - Sorties" icon="🛡️" color="#10b981" />
+        <KpiCard title="Solde Caisse" value={`${soldeTheorique.toLocaleString()} Fr`} sub="Ventes Cash - Sorties" icon="🛡️" color="#10b981" />
         <KpiCard title="Versements" value={`${(stats.versementTotal || 0).toLocaleString()} Fr`} sub="Déclarés en caisse" icon="🏦" color="#6366f1" onClick={() => setView('versement')} />
-        <KpiCard title="DIFF. CA / SOLDE" value={`${diffCaSolde.toLocaleString()} Fr`} sub="Crédit & Écarts" icon="⚖️" color="#f59e0b" />
+        <KpiCard title="ECART DE CAISSE" value={`${ecartCaisse.toLocaleString()} Fr`} sub="Solde Theo - Versements" icon="⚖️" color={ecartCaisse > 0 ? "#ef4444" : "#10b981"} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', marginBottom: '20px' }}>
