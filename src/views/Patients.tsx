@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import { getDb, getCompanyInfo } from "../lib/db";
 import { exportToExcel as utilsExportToExcel } from "../lib/exportUtils";
 
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth, usePermission } from "../contexts/AuthContext";
 
 export default function PatientsView() {
-  const { canEdit, canDelete, user } = useAuth();
+  const { user } = useAuth();
+  const { canCreate, canUpdate, canDelete } = usePermission('patients');
   // currentUser was used for printing PDF signature (currentUser.nom_complet)
   // We can use 'user' from context for that.
   const [patients, setPatients] = useState<any[]>([]);
@@ -116,6 +117,26 @@ export default function PatientsView() {
     setShowPopupModif(false);
     chargerPatients();
     alert("Dossier mis à jour avec succès");
+  };
+
+  const supprimerPatient = async () => {
+    if (!selectedPatient) return;
+    if (!window.confirm("⚠️ Êtes-vous sûr de vouloir supprimer ce patient ? Cette action est irréversible.")) return;
+
+    try {
+      const db = await getDb();
+      const ventes = await db.select<any[]>("SELECT COUNT(*) as c FROM ventes WHERE patient_id = ?", [selectedPatient.id]);
+      if (ventes[0].c > 0) {
+        return alert("❌ Impossible de supprimer ce patient car il a des ventes associées.");
+      }
+      await db.execute("DELETE FROM patients WHERE id = ?", [selectedPatient.id]);
+      setSelectedPatient(null);
+      chargerPatients();
+      alert("✅ Patient supprimé.");
+    } catch (e: any) {
+      console.error(e);
+      alert("Erreur suppression: " + e.message);
+    }
   };
 
   const ouvrirPopupAssurance = () => {
@@ -401,12 +422,12 @@ export default function PatientsView() {
                   <div style={inputGroup}><label style={labelS}>Téléphone 2</label><input value={f.tel2} onChange={e => setF({ ...f, tel2: e.target.value })} style={inputStyle} /></div>
                   <div style={inputGroup}><label style={labelS}>Ville</label><input value={f.ville} onChange={e => setF({ ...f, ville: e.target.value })} style={inputStyle} /></div>
                   <div style={inputGroup}><label style={labelS}>S/Préfecture</label><input value={f.spref} onChange={e => setF({ ...f, spref: e.target.value })} style={inputStyle} /></div>
-                  <div style={inputGroup}><label style={labelS}>Village</label><input value={f.village} disabled={!canEdit()} onChange={e => setF({ ...f, village: e.target.value })} style={inputStyle} /></div>
+                  <div style={inputGroup}><label style={labelS}>Village</label><input value={f.village} disabled={!canCreate} onChange={e => setF({ ...f, village: e.target.value })} style={inputStyle} /></div>
                 </div>
-                {canEdit() && (
+                {canCreate && (
                   <button onClick={enregistrer} style={{ ...btnStyle, marginTop: '20px', backgroundColor: '#2ecc71', width: '200px', fontWeight: 'bold' }}>Enregistrer Patient</button>
                 )}
-                {!canEdit() && (
+                {!canCreate && (
                   <div style={{ marginTop: '20px', color: '#e74c3c', fontStyle: 'italic' }}>🚫 Vous n'avez pas les droits pour créer un patient.</div>
                 )}
               </div>
@@ -449,7 +470,12 @@ export default function PatientsView() {
         <div style={{ ...cardStyle, borderTop: '5px solid #3498db' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h2 style={{ margin: 0, color: '#2c3e50' }}>📂 Dossier Médical : {selectedPatient.nom_prenoms}</h2>
-            <button onClick={() => setSelectedPatient(null)} style={{ background: '#e74c3c', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>Fermer le dossier</button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              {canDelete && (
+                <button onClick={supprimerPatient} style={{ background: '#c0392b', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>Supprimer</button>
+              )}
+              <button onClick={() => setSelectedPatient(null)} style={{ background: '#e74c3c', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>Fermer</button>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', background: '#f8f9fa', padding: '20px', borderRadius: '12px', border: '1px solid #dee2e6' }}>
@@ -479,7 +505,7 @@ export default function PatientsView() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                {canEdit() && (
+                {canUpdate && (
                   <button
                     onClick={ouvrirPopupAssurance}
                     style={{
@@ -495,7 +521,7 @@ export default function PatientsView() {
                     {selectedPatient.assurance_id ? '✏️ Modifier l\'assurance' : '➕ Attribuer une assurance'}
                   </button>
                 )}
-                {selectedPatient.assurance_id && canDelete() && (
+                {selectedPatient.assurance_id && canUpdate && (
                   <button
                     onClick={retirerAssurance}
                     style={{
@@ -516,7 +542,7 @@ export default function PatientsView() {
           </div>
 
           <div style={{ marginTop: '20px' }}>
-            {canEdit() && (
+            {canUpdate && (
               <button onClick={() => setShowPopupModif(true)} style={{ background: '#f1c40f', border: 'none', padding: '12px 25px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>✎ Modifier les informations du patient</button>
             )}
           </div>
