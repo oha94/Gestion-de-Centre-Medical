@@ -1,7 +1,6 @@
 import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../lib/db";
-
-
+import { Protect } from "../components/Protect";
 
 export default function HospitalisationView() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "catalogue" | "admissions" | "archives" | "config_lits">("dashboard");
@@ -12,10 +11,22 @@ export default function HospitalisationView() {
         <h1 style={{ margin: 0, color: '#2c3e50' }}>🏨 Hospitalisation</h1>
         <div style={{ display: 'flex', background: 'white', padding: '5px', borderRadius: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
           <button onClick={() => setActiveTab("dashboard")} style={activeTab === "dashboard" ? tabActive : tabNormal}>📊 Tableau</button>
-          <button onClick={() => setActiveTab("catalogue")} style={activeTab === "catalogue" ? tabActive : tabNormal}>🛠️ Tarifs</button>
-          <button onClick={() => setActiveTab("config_lits")} style={activeTab === "config_lits" ? tabActive : tabNormal}>🛏️ Config</button>
-          <button onClick={() => setActiveTab("admissions")} style={activeTab === "admissions" ? tabActive : tabNormal}>👨‍⚕️ Dossiers</button>
-          <button onClick={() => setActiveTab("archives")} style={activeTab === "archives" ? tabActive : tabNormal}>📚 Historique</button>
+
+          <Protect code="HOSPI_PLANNING">
+            <button onClick={() => setActiveTab("config_lits")} style={activeTab === "config_lits" ? tabActive : tabNormal}>🛏️ Config</button>
+          </Protect>
+
+          <Protect code="HOSPI_ADMIT">
+            <button onClick={() => setActiveTab("catalogue")} style={activeTab === "catalogue" ? tabActive : tabNormal}>🛠️ Tarifs</button>
+          </Protect>
+
+          <Protect code="HOSPI_ADMIT">
+            <button onClick={() => setActiveTab("admissions")} style={activeTab === "admissions" ? tabActive : tabNormal}>👨‍⚕️ Dossiers</button>
+          </Protect>
+
+          <Protect code="HOSPI_VIEW">
+            <button onClick={() => setActiveTab("archives")} style={activeTab === "archives" ? tabActive : tabNormal}>📚 Historique</button>
+          </Protect>
         </div>
       </div>
 

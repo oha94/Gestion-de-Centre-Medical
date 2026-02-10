@@ -22,10 +22,35 @@ export default function EntrepriseConfig() {
 
   const [loading, setLoading] = useState(false);
   const [logoPreview, setLogoPreview] = useState("");
+  const [societes, setSocietes] = useState<any[]>([]);
 
   useEffect(() => {
     chargerEntreprise();
+    chargerSocietes();
+    ensureColumnExists();
   }, []);
+
+  const ensureColumnExists = async () => {
+    try {
+      const db = await getDb();
+      // Try to add the column. If it exists, it will throw an error which we catch.
+      await db.execute("ALTER TABLE app_parametres_entreprise ADD COLUMN id_famille_personnel INTEGER;");
+      console.log("✅ Column id_famille_personnel added.");
+    } catch (e: any) {
+      // Ignore "duplicate column name" error (code 1 or similar depending on SQLite wrapper)
+      console.log("ℹ️ Column check:", e);
+    }
+  };
+
+  const chargerSocietes = async () => {
+    try {
+      const db = await getDb();
+      const res = await db.select<any[]>("SELECT * FROM societes WHERE statut = 'actif'");
+      setSocietes(res);
+    } catch (e) {
+      console.error("Erreur chargement societes", e);
+    }
+  };
 
   const chargerEntreprise = async () => {
     try {
@@ -72,6 +97,7 @@ export default function EntrepriseConfig() {
     try {
       const db = await getDb();
 
+
       // Vérifier si un enregistrement existe
       const existing = await db.select<any[]>("SELECT id FROM app_parametres_entreprise LIMIT 1");
 
@@ -82,7 +108,7 @@ export default function EntrepriseConfig() {
           SET nom_entreprise = ?, sigle = ?, adresse = ?, ville = ?, pays = ?,
               telephone = ?, telephone2 = ?, email = ?, site_web = ?,
               nif = ?, rccm = ?, registre_commerce = ?, logo_url = ?,
-              slogan = ?, description = ?
+              slogan = ?, description = ?, id_famille_personnel = ?
           WHERE id = ?
         `, [
           entreprise.nom_entreprise, entreprise.sigle, entreprise.adresse,
@@ -90,6 +116,7 @@ export default function EntrepriseConfig() {
           entreprise.telephone2, entreprise.email, entreprise.site_web,
           entreprise.nif, entreprise.rccm, entreprise.registre_commerce,
           entreprise.logo_url, entreprise.slogan, entreprise.description,
+          entreprise.id_famille_personnel || null,
           existing[0].id
         ]);
       } else {
@@ -97,14 +124,15 @@ export default function EntrepriseConfig() {
         await db.execute(`
           INSERT INTO app_parametres_entreprise (
             nom_entreprise, sigle, adresse, ville, pays, telephone, telephone2,
-            email, site_web, nif, rccm, registre_commerce, logo_url, slogan, description
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            email, site_web, nif, rccm, registre_commerce, logo_url, slogan, description, id_famille_personnel
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           entreprise.nom_entreprise, entreprise.sigle, entreprise.adresse,
           entreprise.ville, entreprise.pays, entreprise.telephone,
           entreprise.telephone2, entreprise.email, entreprise.site_web,
           entreprise.nif, entreprise.rccm, entreprise.registre_commerce,
-          entreprise.logo_url, entreprise.slogan, entreprise.description
+          entreprise.logo_url, entreprise.slogan, entreprise.description,
+          entreprise.id_famille_personnel || null
         ]);
       }
 
@@ -288,6 +316,28 @@ export default function EntrepriseConfig() {
                 style={inputStyle}
                 placeholder="Numéro du registre"
               />
+            </div>
+          </div>
+
+          {/* Section Configuration RH / Famille */}
+          <div style={{ ...sectionStyle, marginTop: '20px', borderLeft: '4px solid #e67e22' }}>
+            <h3 style={{ ...sectionTitleStyle, borderBottom: '2px solid #e67e22' }}>👪 Configuration Famille Personnel</h3>
+            <p style={{ fontSize: '12px', color: '#7f8c8d' }}>
+              Sélectionnez la Société qui regroupe les membres de la famille du personnel.
+              Les patients appartenant à cette société bénéficieront automatiquement des tarifs préférentiels.
+            </p>
+            <div>
+              <label style={labelStyle}>Société "Famille Personnel"</label>
+              <select
+                value={entreprise.id_famille_personnel || ""}
+                onChange={e => handleChange('id_famille_personnel', e.target.value)}
+                style={inputStyle}
+              >
+                <option value="">-- Aucune sélection --</option>
+                {societes.map(s => (
+                  <option key={s.id} value={s.id}>{s.nom_societe}</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

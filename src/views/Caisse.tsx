@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { getDb } from "../lib/db";
+import { KitService } from "../services/KitService";
+import { Protect } from "../components/Protect";
 
 export default function CaisseView() {
   // --- ÉTATS DONNÉES ---
@@ -36,8 +38,22 @@ export default function CaisseView() {
 
       const resA = await db.select<any[]>("SELECT * FROM prestations ORDER BY categorie, libelle ASC");
 
+      // CHARGER LES KITS ET LES AJOUTER COMME PRESTATIONS SPECIALES
+      const kits = await KitService.getKits();
+      const kitsAsPrestations = kits.map(k => ({
+        id: `KIT_${k.id}`, // ID string unique pour différencier
+        libelle: `📦 ${k.nom} (Kit)`,
+        prix_standard: k.prix_standard,
+        categorie: 'KITS',
+        isKit: true,
+        originalKit: k
+      }));
+
+      // Fusionner
+      const allPrestations = [...resA, ...kitsAsPrestations];
+
       setPatients(resP);
-      setPrestations(resA);
+      setPrestations(allPrestations);
     } catch (e) { console.error(e); }
   };
 
@@ -211,7 +227,9 @@ export default function CaisseView() {
       useAssurance: useAssur,
       partAssureur: partAssur,
       partPatient: acte.prix_standard - partAssur,
-      isHospitalisation: false
+      isHospitalisation: false,
+      isKit: acte.isKit || false,
+      originalKit: acte.originalKit || null
     };
     setPanier([...panier, item]);
   };
@@ -259,18 +277,48 @@ export default function CaisseView() {
 
   const validerPaiement = async () => {
     if (panier.length === 0) return alert("Le panier est vide");
+
+    // VERIFICATION PREALABLE DES STOCKS POUR LES KITS
+    for (const item of panier) {
+      if (item.isKit && item.originalKit) {
+        try {
+          const check = await KitService.checkStock(item.originalKit.id);
+          if (!check.available) {
+            return alert(`❌ Stock insuffisant pour le kit "${item.originalKit.nom}" :\n${check.missing.join("\n")}`);
+          }
+        } catch (e) {
+          console.error(e);
+          return alert("Erreur vérification stock");
+        }
+      }
+    }
+
     try {
       const db = await getDb();
       for (const item of panier) {
+        // Enregistrement Vente
         await db.execute(
           "INSERT INTO ventes (patient_id, acte_libelle, montant_total, part_patient, part_assureur, mode_paiement) VALUES (?,?,?,?,?,?)",
           [patientSelectionne.id, item.libelle, item.total, item.partPatient, item.partAssureur, modePaiement]
         );
+
+        // Si c'est un KIT, on déclenche la consommation de stock
+        if (item.isKit && item.originalKit) {
+          await KitService.consumeKit(
+            item.originalKit.id,
+            0, // User ID (TODO: get from context)
+            patientSelectionne.id,
+            'CAISSE'
+          );
+        }
       }
-      alert("Facture encaissée !");
+      alert("Facture encaissée et stocks mis à jour !");
       setPanier([]);
       setSearchCarnet("");
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      console.error(e);
+      alert("Erreur validation : " + e.message);
+    }
   };
 
   // Groupement des prestations par catégorie pour l'affichage
@@ -367,7 +415,9 @@ export default function CaisseView() {
                           <td style={{ ...tdStyle, width: '60%' }}>{p.libelle}</td>
                           <td style={{ ...tdStyle, fontWeight: 'bold' }}>{p.prix_standard.toLocaleString()} F</td>
                           <td style={{ ...tdStyle, textAlign: 'right' }}>
-                            <button onClick={() => ajouterAuPanier(p)} style={btnAdd}>Ajouter +</button>
+                            <Protect code="CAISSE_ADD_ITEM">
+                              <button onClick={() => ajouterAuPanier(p)} style={btnAdd}>Ajouter +</button>
+                            </Protect>
                           </td>
                         </tr>
                       ))}
@@ -385,10 +435,12 @@ export default function CaisseView() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3>📝 Détails Facture</h3>
               {getTauxAssurance() > 0 && panier.length > 0 && (
-                <div style={{ display: 'flex', gap: '5px' }}>
-                  <button onClick={() => appliquerAssuranceATout(true)} style={btnSmallAction}>Tout Assurer</button>
-                  <button onClick={() => appliquerAssuranceATout(false)} style={btnSmallAction}>Tout Cash</button>
-                </div>
+                <Protect code="CAISSE_TOGGLE_ASSUR">
+                  <div style={{ display: 'flex', gap: '5px' }}>
+                    <button onClick={() => appliquerAssuranceATout(true)} style={btnSmallAction}>Tout Assurer</button>
+                    <button onClick={() => appliquerAssuranceATout(false)} style={btnSmallAction}>Tout Cash</button>
+                  </div>
+                </Protect>
               )}
             </div>
 
@@ -418,16 +470,20 @@ export default function CaisseView() {
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
                       {/* Bouton basculer assurance pour TOUS les items si le patient est assuré */}
                       {getTauxAssurance() > 0 && (
-                        <button
-                          onClick={() => basculerAssuranceItem(item.id)}
-                          style={{ ...btnText, color: item.useAssurance ? '#3498db' : '#e67e22' }}
-                        >
-                          {item.useAssurance ? "✔️ Assuré" : "❌ Cash"}
-                        </button>
+                        <Protect code="CAISSE_TOGGLE_ASSUR">
+                          <button
+                            onClick={() => basculerAssuranceItem(item.id)}
+                            style={{ ...btnText, color: item.useAssurance ? '#3498db' : '#e67e22' }}
+                          >
+                            {item.useAssurance ? "✔️ Assuré" : "❌ Cash"}
+                          </button>
+                        </Protect>
                       )}
                       {/* Bouton supprimer UNIQUEMENT pour les prestations normales */}
                       {!item.isHospitalisation && (
-                        <button onClick={() => supprimerDuPanier(item.id)} style={{ ...btnText, color: '#e74c3c' }}>Supprimer</button>
+                        <Protect code="CAISSE_DEL_ROW">
+                          <button onClick={() => supprimerDuPanier(item.id)} style={{ ...btnText, color: '#e74c3c' }}>Supprimer</button>
+                        </Protect>
                       )}
                     </div>
                   </div>
@@ -461,13 +517,15 @@ export default function CaisseView() {
               </select>
             </div>
 
-            <button
-              disabled={panier.length === 0}
-              onClick={validerPaiement}
-              style={{ ...btnValidate, background: panier.length > 0 ? '#27ae60' : '#ccc' }}
-            >
-              🚀 Valider l'encaissement
-            </button>
+            <Protect code="CAISSE_VALIDATE" fallback={<div style={{ textAlign: 'center', color: 'red', marginTop: 20 }}>🚫 Vous n'avez pas le droit d'encaisser</div>}>
+              <button
+                disabled={panier.length === 0}
+                onClick={validerPaiement}
+                style={{ ...btnValidate, background: panier.length > 0 ? '#27ae60' : '#ccc' }}
+              >
+                🚀 Valider l'encaissement
+              </button>
+            </Protect>
           </div>
         </div>
       </div>

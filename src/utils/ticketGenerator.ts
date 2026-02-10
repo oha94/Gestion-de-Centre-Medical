@@ -60,10 +60,10 @@ export const generateTicketHTML = (data: TicketData, format: '80mm' | 'A4' = '80
 
     // Styles for A4 vs 80mm
     const pageSize = isA4 ? 'A4' : '80mm auto';
-    const bodyWidth = isA4 ? '100%' : '80mm';
-    const bodyPadding = isA4 ? '15mm' : '5mm';
-    const fontSize = isA4 ? '12px' : '11px'; // A4 can be slightly larger or same
-    const fontFamily = isA4 ? "'Inter', sans-serif" : "'Courier New', monospace"; // A4 looks better with Inter/Arial
+    const bodyWidth = isA4 ? '100%' : '68mm'; // Reduced to 68mm to be extremely safe against clipping
+    const bodyPadding = isA4 ? '15mm' : '0';
+    const fontSize = isA4 ? '12px' : '16px'; // Increased to 16px for readability
+    const fontFamily = isA4 ? "'Inter', sans-serif" : "Arial, Helvetica, sans-serif"; // Sans-serif is darker/cleaner on thermal
 
     // A4 specific layout classes
     const containerStyle = isA4 ? "max-width: 180mm; margin: 0 auto;" : "";
@@ -75,15 +75,16 @@ export const generateTicketHTML = (data: TicketData, format: '80mm' | 'A4' = '80
                  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
                 <style>
                     @page { size: ${pageSize}; margin: 0; }
-                    body { margin: 0; padding: ${bodyPadding}; font-family: ${fontFamily}; width: ${bodyWidth}; background: white; color: black; box-sizing: border-box; }
+                    body { margin: 0; padding: ${bodyPadding}; font-family: ${fontFamily}; font-size: ${fontSize}; width: ${bodyWidth}; background: white; color: black; box-sizing: border-box; font-weight: normal; -webkit-font-smoothing: none; }
                     .center { text-align: center; }
                     .bold { font-weight: bold; }
                     .dashed { margin: 10px 0; border-bottom: 1px dashed #000; }
-                    .fs-11 { font-size: ${fontSize}; }
-                    .fs-12 { font-size: ${isA4 ? '13px' : '12px'}; }
-                    table { width: 100%; border-collapse: collapse; font-size: ${fontSize}; }
-                    th { text-align: left; border-bottom: 2px solid #000; padding: 5px 0; }
-                    td { vertical-align: top; padding-top: 5px; padding-bottom: 5px; border-bottom: ${isA4 ? '1px solid #eee' : 'none'}; }
+                    .fs-11 { font-size: 14px; }
+                    .fs-12 { font-size: 14px; } 
+                    .fs-14 { font-size: 16px; }
+                    table { width: 100%; border-collapse: collapse; font-weight: normal; }
+                    th { text-align: left; border-bottom: 2px solid #000; padding: 5px 0; font-weight: bold; }
+                    td { vertical-align: top; padding-top: 5px; padding-bottom: 5px; border-bottom: none; font-weight: normal; }
                     .right { text-align: right; }
                     
                     /* A4 Specifics */
@@ -144,13 +145,12 @@ export const generateTicketHTML = (data: TicketData, format: '80mm' | 'A4' = '80
                     ` : `
                         <!-- 80mm HEADER -->
                         <div class="center" style="margin-bottom: 15px;">
-                            <div class="bold" style="font-size: 16px;">${entreprise.nom_entreprise || 'CENTRE MEDICAL'}</div>
-                            <div class="fs-12">${entreprise.adresse || ''}</div>
-                            <div class="fs-12">Tel: ${entreprise.telephone || ''}</div>
+                            <div class="bold" style="font-size: 18px; text-transform: uppercase;">${entreprise.nom_entreprise || 'CENTRE MEDICAL'}</div>
+                            <div style="font-size: 14px;">${entreprise.adresse || ''}</div>
+                            <div style="font-size: 14px;">Tel: ${entreprise.telephone || ''}</div>
                             <div class="dashed"></div>
-                            <div class="bold">REÇU DE CAISSE</div>
-                            <div class="fs-11">Date: ${dateVente.toLocaleString('fr-FR')}</div>
-                            <div class="fs-11">Ticket: ${ticketNum}</div>
+                            <div style="font-size: 14px;">Ticket #${ticketNum}</div>
+                             <div style="font-size: 14px;">${dateVente.toLocaleString('fr-FR')}</div>
                             <div class="dashed"></div>
                         </div>
                         

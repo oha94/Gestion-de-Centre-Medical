@@ -229,33 +229,13 @@ export default function BonLivraisonView({ currentUser: _ }: { currentUser?: any
     setLigne(prev => ({ ...prev, [field]: val }));
   };
 
-  const checkInventoryLock = async (dateBL: string | Date | null) => {
-    if (!dateBL) return false;
-    try {
-      const db = await getDb();
-      const res = await db.select<any[]>('SELECT MAX(date_validation) as d FROM stock_inventaires WHERE statut="VALIDE"');
-      const lastInvDate = res[0]?.d;
-      if (lastInvDate) {
-        const blDate = new Date(dateBL);
-        const invDate = new Date(lastInvDate);
-        // Comparison: if BL Date <= Last Inventory Date -> LOCKED
-        // Note: date_validation is DATETIME, date_bl is usually DATE (YYYY-MM-DD) or DATETIME.
-        // Safe comparison: compare timestamps or ISO strings.
-        if (blDate <= invDate) {
-          alert(`⛔ ACTION REFUSÉE\n\nCe bon est antérieur au dernier inventaire validé (${new Date(lastInvDate).toLocaleDateString()}).\nLa période est clôturée.`);
-          return true; // Locked
-        }
-      }
-    } catch (e) { console.error("Check lock error", e); }
-    return false; // Not locked
-  };
+
 
   const ajouterProduitAuBL = async () => {
     if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
     if (!ligne.articleId || !ligne.qte) return alert("Article et Quantité requis");
 
-    // LOCK CHECK
-    if (await checkInventoryLock(selectedBL.date_bl)) return;
+
 
     const totalLigne = ligne.qte * ligne.pAchatTTC;
 
@@ -314,8 +294,7 @@ export default function BonLivraisonView({ currentUser: _ }: { currentUser?: any
 
   const supprimerProduitDuBL = async (detailId: number, articleId: number, qte: number, montantLigne: number) => {
     if (!canEdit()) return alert("⛔ Vous n'avez pas les droits de modification.");
-    // LOCK CHECK
-    if (await checkInventoryLock(selectedBL.date_bl)) return;
+
 
     if (!window.confirm("Supprimer cette ligne ? Le stock sera déduit.")) return;
 
@@ -365,8 +344,7 @@ export default function BonLivraisonView({ currentUser: _ }: { currentUser?: any
     const bl = bons.find(b => b.id === id);
     if (!bl) return;
 
-    // LOCK CHECK
-    if (await checkInventoryLock(bl.date_bl)) return;
+
 
     if (!window.confirm("Supprimer tout le bon de livraison ? Le stock sera restauré (si implémenté).")) return;
 

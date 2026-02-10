@@ -76,120 +76,197 @@ export default function PrinterConfig() {
         }
     };
 
-    const testTicketPrint = () => {
+    const testTicketPrint = async () => {
         if (!caissePrinter) {
             alert('⚠️ Veuillez sélectionner une imprimante pour la caisse');
             return;
         }
 
-        const printWindow = window.open('', '', 'width=300,height=600');
-        if (!printWindow) return;
+        const htmlContent = `
+        <html>
+        <head>
+          <title>Test Ticket</title>
+          <style>
+            @page { size: 80mm auto; margin: 0; }
+            body { 
+              font-family: 'Courier New', monospace; 
+              font-size: 12px; 
+              width: 80mm; 
+              margin: 0; 
+              padding: 10px;
+              background: white;
+            }
+            .center { text-align: center; }
+            .bold { font-weight: bold; }
+            hr { border: 1px dashed #000; }
+          </style>
+        </head>
+        <body>
+          <div class="center bold">CENTRE MÉDICAL</div>
+          <div class="center">Test d'impression</div>
+          <hr>
+          <div>Date: ${new Date().toLocaleString('fr-FR')}</div>
+          <div>Imprimante: ${caissePrinter}</div>
+          <hr>
+          <div class="center">TICKET DE TEST</div>
+          <div class="center">Ceci est un test d'impression</div>
+          <div class="center">pour ticket de caisse</div>
+          <hr>
+          <div class="center">Merci !</div>
+        </body>
+        </html>
+        `;
 
-        printWindow.document.write(`
-      <html>
-      <head>
-        <title>Test Ticket</title>
-        <style>
-          @page { size: 80mm auto; margin: 0; }
-          body { 
-            font-family: 'Courier New', monospace; 
-            font-size: 12px; 
-            width: 80mm; 
-            margin: 0; 
-            padding: 10px;
-          }
-          .center { text-align: center; }
-          .bold { font-weight: bold; }
-          hr { border: 1px dashed #000; }
-        </style>
-      </head>
-      <body>
-        <div class="center bold">CENTRE MÉDICAL</div>
-        <div class="center">Test d'impression</div>
-        <hr>
-        <div>Date: ${new Date().toLocaleString('fr-FR')}</div>
-        <div>Imprimante: ${caissePrinter}</div>
-        <hr>
-        <div class="center">TICKET DE TEST</div>
-        <div class="center">Ceci est un test d'impression</div>
-        <div class="center">pour ticket de caisse</div>
-        <hr>
-        <div class="center">Merci !</div>
-      </body>
-      </html>
-    `);
+        if (caissePrinter && caissePrinter !== "Par défaut") {
+            try {
+                const html2canvas = (await import('html2canvas')).default;
+                // const jsPDF = (await import('jspdf')).default; // Unused
+                const { invoke } = await import('@tauri-apps/api/core');
 
-        printWindow.document.close();
-        setTimeout(() => {
-            printWindow.print();
-            printWindow.close();
-        }, 250);
+                const container = document.createElement('div');
+                container.style.position = 'absolute';
+                container.style.left = '-9999px';
+                container.style.top = '0';
+                container.style.width = '80mm';
+                container.style.background = 'white';
+                container.innerHTML = htmlContent;
+                document.body.appendChild(container); // Must be in DOM for html2canvas
+
+                await new Promise(r => setTimeout(r, 100)); // Wait render
+
+                const canvas = await html2canvas(container, { scale: 2 });
+                const imgData = canvas.toDataURL('image/png');
+
+                const base64 = imgData.split(',')[1];
+                const binaryString = window.atob(base64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                await invoke('print_pdf', { printerName: caissePrinter, fileContent: Array.from(bytes) });
+                document.body.removeChild(container);
+                alert(`✅ Test envoyé à "${caissePrinter}"`);
+            } catch (e) {
+                console.error(e);
+                alert(`❌ Erreur test impression: ${e}`);
+            }
+        } else {
+            // Fallback
+            const printWindow = window.open('', '', 'width=300,height=600');
+            if (!printWindow) return;
+            printWindow.document.write(htmlContent);
+            printWindow.document.close();
+            setTimeout(() => {
+                printWindow.print();
+                printWindow.close();
+            }, 250);
+        }
     };
 
-    const testA4Print = () => {
+    const testA4Print = async () => {
         if (!documentPrinter) {
             alert('⚠️ Veuillez sélectionner une imprimante pour les documents');
             return;
         }
 
-        const printWindow = window.open('', '', 'width=800,height=600');
-        if (!printWindow) return;
+        const htmlContent = `
+        <html>
+        <head>
+          <title>Test Document A4</title>
+          <style>
+            @page { size: A4; margin: 2cm; }
+            body { 
+              font-family: Arial, sans-serif; 
+              padding: 20px;
+              background: white;
+              width: 210mm;
+            }
+            .header { 
+              text-align: center; 
+              border-bottom: 2px solid #667eea; 
+              padding-bottom: 20px;
+              margin-bottom: 30px;
+            }
+            .content { line-height: 1.6; }
+            .footer { 
+              margin-top: 50px; 
+              text-align: center; 
+              color: #666;
+              font-size: 12px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>CENTRE MÉDICAL</h1>
+            <h2>Test d'Impression A4</h2>
+          </div>
+          <div class="content">
+            <p><strong>Date:</strong> ${new Date().toLocaleString('fr-FR')}</p>
+            <p><strong>Imprimante:</strong> ${documentPrinter}</p>
+            <hr>
+            <h3>Test d'impression de document</h3>
+            <p>Ceci est un test d'impression pour les documents au format A4.</p>
+            <p>Cette page permet de vérifier que l'imprimante sélectionnée fonctionne correctement.</p>
+            <ul>
+              <li>Format: A4</li>
+              <li>Orientation: Portrait</li>
+            </ul>
+          </div>
+          <div class="footer">
+            <p>Document de test généré le ${new Date().toLocaleDateString('fr-FR')}</p>
+          </div>
+        </body>
+        </html>
+        `;
 
-        printWindow.document.write(`
-      <html>
-      <head>
-        <title>Test Document A4</title>
-        <style>
-          @page { size: A4; margin: 2cm; }
-          body { 
-            font-family: Arial, sans-serif; 
-            padding: 20px;
-          }
-          .header { 
-            text-align: center; 
-            border-bottom: 2px solid #667eea; 
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-          }
-          .content { line-height: 1.6; }
-          .footer { 
-            margin-top: 50px; 
-            text-align: center; 
-            color: #666;
-            font-size: 12px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>CENTRE MÉDICAL</h1>
-          <h2>Test d'Impression A4</h2>
-        </div>
-        <div class="content">
-          <p><strong>Date:</strong> ${new Date().toLocaleString('fr-FR')}</p>
-          <p><strong>Imprimante:</strong> ${documentPrinter}</p>
-          <hr>
-          <h3>Test d'impression de document</h3>
-          <p>Ceci est un test d'impression pour les documents au format A4.</p>
-          <p>Cette page permet de vérifier que l'imprimante sélectionnée fonctionne correctement.</p>
-          <ul>
-            <li>Format: A4</li>
-            <li>Orientation: Portrait</li>
-            <li>Marges: 2cm</li>
-          </ul>
-        </div>
-        <div class="footer">
-          <p>Document de test généré le ${new Date().toLocaleDateString('fr-FR')}</p>
-        </div>
-      </body>
-      </html>
-    `);
+        if (documentPrinter && documentPrinter !== "Par défaut") {
+            try {
+                const html2canvas = (await import('html2canvas')).default;
+                // const jsPDF = (await import('jspdf')).default;
+                const { invoke } = await import('@tauri-apps/api/core');
 
-        printWindow.document.close();
-        setTimeout(() => {
-            printWindow.print();
-            printWindow.close();
-        }, 250);
+                const container = document.createElement('div');
+                container.style.position = 'absolute';
+                container.style.left = '-9999px';
+                container.style.top = '0';
+                container.style.width = '210mm';
+                container.style.background = 'white';
+                container.innerHTML = htmlContent;
+                document.body.appendChild(container);
+
+                await new Promise(r => setTimeout(r, 100));
+
+                const canvas = await html2canvas(container, { scale: 2 });
+                const imgData = canvas.toDataURL('image/png');
+
+                const base64 = imgData.split(',')[1];
+                const binaryString = window.atob(base64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                await invoke('print_pdf', { printerName: documentPrinter, fileContent: Array.from(bytes) });
+                document.body.removeChild(container);
+                alert(`✅ Test envoyé à "${documentPrinter}"`);
+            } catch (e) {
+                console.error(e);
+                alert(`❌ Erreur test impression: ${e}`);
+            }
+        } else {
+            const printWindow = window.open('', '', 'width=800,height=600');
+            if (!printWindow) return;
+            printWindow.document.write(htmlContent);
+            printWindow.document.close();
+            setTimeout(() => {
+                printWindow.print();
+                printWindow.close();
+            }, 250);
+        }
     };
 
     if (loading) {

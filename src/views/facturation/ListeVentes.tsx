@@ -1,5 +1,6 @@
 import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../../lib/db";
+import { Protect } from "../../components/Protect";
 
 export default function ListeVentes({ softwareDate, setView, currentUser }: { softwareDate: string, setView: (v: string) => void, currentUser?: any }) {
     const [ventes, setVentes] = useState<any[]>([]);
@@ -210,10 +211,13 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
 
     // Grouper par ticket pour l'affichage
     const tickets = filtrerVentes.reduce((acc: any, v) => {
-        const t = v.numero_ticket || `ID-${v.id}`;
-        if (!acc[t]) {
+        // FIX: Group by Ticket AND Date to separate sales that might share a ticket number due to previous bugs
+        const tKey = (v.numero_ticket || `ID-${v.id}`) + '_' + (v.date_vente || v.created_at);
+        const tLabel = v.numero_ticket || `ID-${v.id}`;
+
+        if (!acc[tKey]) {
             const { date: dateFormatted, heure } = getDisplayDate(v);
-            acc[t] = {
+            acc[tKey] = {
                 items: [],
                 totalPatient: 0,
                 totalCredit: 0,
@@ -227,14 +231,15 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                 assurance: v.assurance_nom,
                 personnel: v.personnel_nom,
                 operateur: v.operateur_nom,
-                t,
+                t: tLabel, // Display Label
+                uniqueKey: tKey, // Internal Key
                 globalRank: globalTicketMap[v.numero_ticket] || '?'
             };
         }
-        acc[t].items.push(v);
-        acc[t].totalPatient += v.part_patient;
-        acc[t].totalCredit += v.part_assureur || 0;
-        acc[t].totalVente += v.montant_total;
+        acc[tKey].items.push(v);
+        acc[tKey].totalPatient += v.part_patient;
+        acc[tKey].totalCredit += v.part_assureur || 0;
+        acc[tKey].totalVente += v.montant_total;
         return acc;
     }, {});
 
@@ -311,7 +316,63 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
         setPreviewHtml(html);
     };
 
-    const printHtml = (html: string) => {
+    const [caissePrinter, setCaissePrinter] = useState<string | null>(null);
+
+    useEffect(() => {
+        const loadPrinter = async () => {
+            try {
+                const db = await getDb();
+                const settings = await db.select<any[]>("SELECT * FROM app_parametres_app LIMIT 1");
+                if (settings[0]?.imprimante_caisse) {
+                    setCaissePrinter(settings[0].imprimante_caisse);
+                }
+            } catch (e) { console.error("Printer load error", e); }
+        };
+        loadPrinter();
+    }, []);
+
+    const printHtml = async (html: string) => {
+        if (caissePrinter && caissePrinter !== "Par défaut") {
+            let container: HTMLDivElement | null = null;
+            try {
+                const html2canvas = (await import('html2canvas')).default;
+                const { invoke } = await import('@tauri-apps/api/core');
+
+                container = document.createElement('div');
+                container.style.position = 'absolute';
+                container.style.left = '-9999px';
+                container.style.top = '0';
+                container.style.width = '80mm'; // Receipt width
+                container.style.background = 'white';
+                container.innerHTML = html;
+                document.body.appendChild(container);
+
+                await new Promise(r => setTimeout(r, 100)); // Layout wait
+
+                const canvas = await html2canvas(container, { scale: 2.5, useCORS: true });
+                const imgData = canvas.toDataURL('image/png');
+
+                const base64 = imgData.split(',')[1];
+                const binaryString = window.atob(base64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                await invoke('print_pdf', { printerName: caissePrinter, fileContent: Array.from(bytes) });
+            } catch (e) {
+                console.error("Backend print error", e);
+                // alert("Erreur impression backend: " + e);
+            } finally {
+                if (container && document.body.contains(container)) {
+                    document.body.removeChild(container);
+                }
+            }
+            return;
+        }
+
+        // Fallback
         const iframe = document.createElement('iframe');
         iframe.style.position = 'fixed';
         iframe.style.right = '0';
@@ -397,7 +458,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                             <tr><td colSpan={10} style={{ padding: '50px', textAlign: 'center', color: '#7f8c8d' }}>Aucune vente.</td></tr>
                         ) : (
                             ticketList.map((t: any) => (
-                                <tr key={t.t} style={{ borderBottom: '1px solid #eee', transition: '0.2s' }}>
+                                <tr key={t.uniqueKey} style={{ borderBottom: '1px solid #eee', transition: '0.2s' }}>
                                     <td style={{ ...tdS, fontWeight: 'bold', color: '#34495e' }}>
                                         {t.t}
                                         {t.globalRank !== '?' && <div style={{ fontSize: '10px', color: '#95a5a6' }}>Ranq: #{t.globalRank}</div>}
@@ -420,24 +481,30 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                                     <td style={{ ...tdS, textAlign: 'center' }}>
                                         <div style={{ display: 'flex', gap: '5px', justifyContent: 'center' }}>
                                             {/* Vérification droit modification */}
-                                            {!!currentUser?.can_edit && (
-                                                <button onClick={() => modifierVenteFlow(t.t)} style={actionBtn} title="Modifier (Retour au Panier)">✏️</button>
-                                            )}
+                                            <Protect code="VENTES_EDIT">
+                                                {!!currentUser?.can_edit && (
+                                                    <button onClick={() => modifierVenteFlow(t.t)} style={actionBtn} title="Modifier (Retour au Panier)">✏️</button>
+                                                )}
+                                            </Protect>
 
                                             {/* Allow if undefined or true */}
                                             {(currentUser?.can_print !== false && currentUser?.can_print !== 0) && (
                                                 <button onClick={() => handlePreviewTicket(t)} title="Imprimer Ticket (Aperçu)" style={{ ...actionBtn, background: '#e0f2fe', color: '#0284c7' }}>
                                                     🖨️
                                                 </button>
-                                            )}{!!currentUser?.can_delete && (
-                                                <button onClick={async () => {
-                                                    if (confirm("🚨 ATTENTION : Suppression Définitive\n\nVoulez-vous vraiment supprimer ce ticket ?\n\n✅ Les articles seront remis en stock.\n✅ La vente sera archivée.")) {
-                                                        for (const v of t.items) await supprimerVenteAction(v, true);
-                                                        alert("🗑️ Vente supprimée et stock restauré avec succès.");
-                                                        chargerDonnees();
-                                                    }
-                                                }} style={{ ...actionBtn, background: '#ffebee', color: '#e74c3c' }} title="Supprimer">🗑️</button>
                                             )}
+
+                                            <Protect code="VENTES_DELETE">
+                                                {!!currentUser?.can_delete && (
+                                                    <button onClick={async () => {
+                                                        if (confirm("🚨 ATTENTION : Suppression Définitive\n\nVoulez-vous vraiment supprimer ce ticket ?\n\n✅ Les articles seront remis en stock.\n✅ La vente sera archivée.")) {
+                                                            for (const v of t.items) await supprimerVenteAction(v, true);
+                                                            alert("🗑️ Vente supprimée et stock restauré avec succès.");
+                                                            chargerDonnees();
+                                                        }
+                                                    }} style={{ ...actionBtn, background: '#ffebee', color: '#e74c3c' }} title="Supprimer">🗑️</button>
+                                                )}
+                                            </Protect>
                                         </div>
                                     </td>
                                 </tr>

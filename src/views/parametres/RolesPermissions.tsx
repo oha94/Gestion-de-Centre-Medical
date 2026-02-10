@@ -327,7 +327,7 @@ export default function RolesPermissions() {
               <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
                 {Object.keys(menusParCategorie).map(categorie => (
                   <div key={categorie} style={{ marginBottom: '25px' }}>
-                    <h4 style={{ margin: '0 0 10px 0', borderBottom: '2px solid #eee', paddingBottom: '5px', color: '#7f8c8d', textTransform: 'uppercase', fontSize: '0.85em', letterSpacing: '1px' }}>{categorie}</h4>
+                    <h4 style={{ margin: '0 0 10px 0', borderBottom: '2px solid #eee', paddingBottom: '5px', color: '#7f8c8d', textTransform: 'uppercase', fontSize: '0.85em', letterSpacing: '1px' }}>{categorie.replace('MODULE_', '')}</h4>
                     <div style={{ display: 'grid', gap: '10px' }}>
                       {menusParCategorie[categorie].map((menu: any) => {
                         const perm = permissions.find(p => p.menu_id === menu.id);
@@ -348,8 +348,8 @@ export default function RolesPermissions() {
                               </label>
                             </div>
 
-                            {/* GRANULAR CONTROLS */}
-                            {hasAccess && (
+                            {/* GRANULAR CONTROLS - Only for specific modules/views */}
+                            {hasAccess && ['PATIENTS_VIEW', 'PARAM_USERS', 'PARAM_ROLES'].includes(menu.code) && (
                               <div style={{ display: 'flex', gap: '20px', borderLeft: '1px solid #eee', paddingLeft: '20px' }}>
                                 <PermissionToggle
                                   label="Ajouter"

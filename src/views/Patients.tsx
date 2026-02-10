@@ -2,11 +2,17 @@ import { useState, useEffect } from "react";
 import { getDb, getCompanyInfo } from "../lib/db";
 import { exportToExcel as utilsExportToExcel } from "../lib/exportUtils";
 
-import { useAuth, usePermission } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/AuthContext";
+import { Protect } from "../components/Protect";
 
 export default function PatientsView() {
-  const { user } = useAuth();
-  const { canCreate, canUpdate, canDelete } = usePermission('patients');
+  const { user, hasPermission } = useAuth();
+
+  // Granular Permissions Checks
+  const canCreate = hasPermission("PATIENTS_ADD");
+  const canUpdate = hasPermission("PATIENTS_EDIT");
+  const canDelete = hasPermission("PATIENTS_DELETE") || user?.role_nom === 'Administrateur'; // Assuming there might be a PATIENTS_DELETE or strictly Admin
+
   // currentUser was used for printing PDF signature (currentUser.nom_complet)
   // We can use 'user' from context for that.
   const [patients, setPatients] = useState<any[]>([]);
@@ -28,6 +34,8 @@ export default function PatientsView() {
   const [assurances, setAssurances] = useState<any[]>([]);
   const [showPopupAssurance, setShowPopupAssurance] = useState(false);
   const [selectedAssuranceId, setSelectedAssuranceId] = useState("");
+  const [selectedSocieteId, setSelectedSocieteId] = useState("");
+  const [societes, setSocietes] = useState<any[]>([]);
   const [numeroAssure, setNumeroAssure] = useState("");
   const [tauxCouverture, setTauxCouverture] = useState(80);
 
@@ -47,9 +55,16 @@ export default function PatientsView() {
     setAssurances(res);
   };
 
+  const chargerSocietes = async () => {
+    const db = await getDb();
+    const res = await db.select<any[]>("SELECT * FROM societes WHERE statut='actif' ORDER BY nom_societe ASC");
+    setSocietes(res);
+  };
+
   useEffect(() => {
     chargerPatients();
     chargerAssurances();
+    chargerSocietes();
   }, []);
 
   useEffect(() => {
@@ -143,10 +158,12 @@ export default function PatientsView() {
     // Pré-remplir si le patient a déjà une assurance
     if (selectedPatient.assurance_id) {
       setSelectedAssuranceId(selectedPatient.assurance_id.toString());
+      setSelectedSocieteId(selectedPatient.societe_id ? selectedPatient.societe_id.toString() : "");
       setNumeroAssure(selectedPatient.numero_assure || "");
       setTauxCouverture(selectedPatient.taux_couverture || 80);
     } else {
       setSelectedAssuranceId("");
+      setSelectedSocieteId(selectedPatient.societe_id ? selectedPatient.societe_id.toString() : ""); // Societe can exist without assurance
       setNumeroAssure("");
       setTauxCouverture(80);
     }
@@ -154,14 +171,20 @@ export default function PatientsView() {
   };
 
   const attribuerAssurance = async () => {
-    if (!selectedAssuranceId) {
-      return alert("Veuillez sélectionner une assurance");
+    if (!selectedAssuranceId && !selectedSocieteId) {
+      return alert("Veuillez sélectionner une assurance ou une société.");
     }
 
     const db = await getDb();
     await db.execute(
-      "UPDATE patients SET assurance_id = ?, numero_assure = ?, taux_couverture = ? WHERE id = ?",
-      [selectedAssuranceId, numeroAssure, tauxCouverture, selectedPatient.id]
+      "UPDATE patients SET assurance_id = ?, societe_id = ?, numero_assure = ?, taux_couverture = ? WHERE id = ?",
+      [
+        selectedAssuranceId || null,
+        selectedSocieteId || null,
+        numeroAssure,
+        tauxCouverture,
+        selectedPatient.id
+      ]
     );
 
     // Rafraîchir les données du patient
@@ -178,7 +201,7 @@ export default function PatientsView() {
 
     const db = await getDb();
     await db.execute(
-      "UPDATE patients SET assurance_id = NULL, numero_assure = NULL, taux_couverture = NULL WHERE id = ?",
+      "UPDATE patients SET assurance_id = NULL, societe_id = NULL, numero_assure = NULL, taux_couverture = NULL WHERE id = ?",
       [selectedPatient.id]
     );
 
@@ -518,7 +541,7 @@ export default function PatientsView() {
                       fontWeight: 'bold'
                     }}
                   >
-                    {selectedPatient.assurance_id ? '✏️ Modifier l\'assurance' : '➕ Attribuer une assurance'}
+                    {selectedPatient.assurance_id || selectedPatient.societe_id ? '✏️ Modifier Couverture' : '➕ Attribuer Couverture (Assur/Soc)'}
                   </button>
                 )}
                 {selectedPatient.assurance_id && canUpdate && (
@@ -547,51 +570,53 @@ export default function PatientsView() {
             )}
           </div>
 
-          <h3 style={{ marginTop: '40px', borderBottom: '2px solid #3498db', paddingBottom: '10px', color: '#2c3e50' }}>📜 Historique des Opérations</h3>
-          <table style={tableStyle}>
-            <thead>
-              <tr style={{ background: '#ecf0f1' }}>
-                <th style={tdStyle}>Date</th>
-                <th style={tdStyle}>Acte / Prestation</th>
-                <th style={tdStyle}>Montant Total</th>
-                <th style={tdStyle}>Part Patient</th>
-                <th style={tdStyle}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historique.length > 0 ? historique.map(h => (
-                <tr key={h.id} style={{ borderBottom: '1px solid #f1f1f1' }}>
-                  <td style={tdStyle}>
-                    {(() => {
-                      try {
-                        const date = new Date(h.date_vente);
-                        return date.toLocaleDateString('fr-FR');
-                      } catch {
-                        return 'Invalid Date';
-                      }
-                    })()}
-                  </td>
-                  <td style={tdStyle}>
-                    {h.acte_libelle}
-                    {h.part_assureur > 0 && (
-                      <span style={{ marginLeft: '8px', fontSize: '0.75rem', background: '#d4edda', color: '#155724', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
-                        🛡️ Assuré
-                      </span>
-                    )}
-                  </td>
-                  <td style={tdStyle}><strong>{h.montant_total.toLocaleString()} F</strong></td>
-                  <td style={tdStyle}><strong style={{ color: '#27ae60' }}>{h.part_patient.toLocaleString()} F</strong></td>
-                  <td style={tdStyle}>
-                    <button onClick={() => voirDetails(h)} style={{ ...btnSmall, fontSize: '0.85rem' }}>
-                      👁️ Détails
-                    </button>
-                  </td>
+          <Protect code="CONSULT_HISTORY">
+            <h3 style={{ marginTop: '40px', borderBottom: '2px solid #3498db', paddingBottom: '10px', color: '#2c3e50' }}>📜 Historique des Opérations</h3>
+            <table style={tableStyle}>
+              <thead>
+                <tr style={{ background: '#ecf0f1' }}>
+                  <th style={tdStyle}>Date</th>
+                  <th style={tdStyle}>Acte / Prestation</th>
+                  <th style={tdStyle}>Montant Total</th>
+                  <th style={tdStyle}>Part Patient</th>
+                  <th style={tdStyle}>Action</th>
                 </tr>
-              )) : (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px', color: '#999' }}>Aucun historique pour ce patient</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {historique.length > 0 ? historique.map(h => (
+                  <tr key={h.id} style={{ borderBottom: '1px solid #f1f1f1' }}>
+                    <td style={tdStyle}>
+                      {(() => {
+                        try {
+                          const date = new Date(h.date_vente);
+                          return date.toLocaleDateString('fr-FR');
+                        } catch {
+                          return 'Invalid Date';
+                        }
+                      })()}
+                    </td>
+                    <td style={tdStyle}>
+                      {h.acte_libelle}
+                      {h.part_assureur > 0 && (
+                        <span style={{ marginLeft: '8px', fontSize: '0.75rem', background: '#d4edda', color: '#155724', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                          🛡️ Assuré
+                        </span>
+                      )}
+                    </td>
+                    <td style={tdStyle}><strong>{h.montant_total.toLocaleString()} F</strong></td>
+                    <td style={tdStyle}><strong style={{ color: '#27ae60' }}>{h.part_patient.toLocaleString()} F</strong></td>
+                    <td style={tdStyle}>
+                      <button onClick={() => voirDetails(h)} style={{ ...btnSmall, fontSize: '0.85rem' }}>
+                        👁️ Détails
+                      </button>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px', color: '#999' }}>Aucun historique pour ce patient</td></tr>
+                )}
+              </tbody>
+            </table>
+          </Protect>
         </div>
       )
       }
@@ -641,7 +666,21 @@ export default function PatientsView() {
 
               <div style={{ marginTop: '20px' }}>
                 <div style={inputGroup}>
-                  <label style={labelS}>Assurance *</label>
+                  <label style={labelS}>Société / Famille (Optionnel)</label>
+                  <select
+                    value={selectedSocieteId}
+                    onChange={e => setSelectedSocieteId(e.target.value)}
+                    style={inputStyle}
+                  >
+                    <option value="">-- Aucune Société --</option>
+                    {societes.map(s => (
+                      <option key={s.id} value={s.id}>{s.nom_societe}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ ...inputGroup, marginTop: '15px' }}>
+                  <label style={labelS}>Assurance (Optionnel)</label>
                   <select
                     value={selectedAssuranceId}
                     onChange={e => setSelectedAssuranceId(e.target.value)}

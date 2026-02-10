@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getDb } from '../lib/db';
+import { Protect } from '../components/Protect';
 
 // --- UTILS ---
 // const formatDate = (d: string) => new Date(d).toLocaleDateString('fr-FR');
@@ -2239,12 +2240,18 @@ export default function DocumentsMain() {
                     </div>
 
                     <div style={{ padding: '20px 20px 10px 20px', fontSize: '11px', fontWeight: 'bold', color: '#b0bec5', letterSpacing: '0.5px' }}>MODULES</div>
-                    <div onClick={() => setSubView('stock_docs')} style={menuItemStyle(subView === 'stock_docs')}>
-                        📦 Documents Stock
-                    </div>
-                    <div onClick={() => setSubView('accounting_docs')} style={menuItemStyle(subView === 'accounting_docs')}>
-                        💰 Documents Comptable
-                    </div>
+
+                    <Protect code="STOCK_VIEW">
+                        <div onClick={() => setSubView('stock_docs')} style={menuItemStyle(subView === 'stock_docs')}>
+                            📦 Documents Stock
+                        </div>
+                    </Protect>
+
+                    <Protect code="DOCS_STATS">
+                        <div onClick={() => setSubView('accounting_docs')} style={menuItemStyle(subView === 'accounting_docs')}>
+                            💰 Documents Comptable
+                        </div>
+                    </Protect>
                 </div>
             </div>
 

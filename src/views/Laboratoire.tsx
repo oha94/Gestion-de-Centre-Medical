@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getDb } from "../lib/db";
+import { Protect } from "../components/Protect";
 
 export default function LaboratoireView() {
   const [examens, setExamens] = useState<any[]>([]);
@@ -87,48 +88,50 @@ export default function LaboratoireView() {
       </div>
 
       {/* FORMULAIRE D'AJOUT */}
-      <div style={cardStyle}>
-        <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0 }}>➕ Ajouter un nouvel examen</h3>
-        <div style={{ display: 'flex', gap: '15px', marginTop: '15px', alignItems: 'flex-end' }}>
-          <div style={{ flex: 1 }}>
-            <label style={labelS}>Catégorie</label>
-            <input
-              placeholder="Ex: Labo 1, Labo 2..."
-              value={categorie}
-              onChange={e => setCategorie(e.target.value)}
-              style={inputStyle}
-              list="cat-suggestions"
-            />
-            <datalist id="cat-suggestions">
-              <option value="LABO" />
-              <option value="Labo 1" />
-              <option value="Labo 2" />
-              <option value="Bactériologie" />
-              <option value="Parasitologie" />
-            </datalist>
+      <Protect code="LABO_VALIDATE">
+        <div style={cardStyle}>
+          <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0 }}>➕ Ajouter un nouvel examen</h3>
+          <div style={{ display: 'flex', gap: '15px', marginTop: '15px', alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelS}>Catégorie</label>
+              <input
+                placeholder="Ex: Labo 1, Labo 2..."
+                value={categorie}
+                onChange={e => setCategorie(e.target.value)}
+                style={inputStyle}
+                list="cat-suggestions"
+              />
+              <datalist id="cat-suggestions">
+                <option value="LABO" />
+                <option value="Labo 1" />
+                <option value="Labo 2" />
+                <option value="Bactériologie" />
+                <option value="Parasitologie" />
+              </datalist>
+            </div>
+            <div style={{ flex: 2 }}>
+              <label style={labelS}>Désignation de l'examen</label>
+              <input
+                placeholder="Ex: NFS, Glycémie, Test Palu..."
+                value={nom}
+                onChange={e => setNom(e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelS}>Prix Standard (FCFA)</label>
+              <input
+                type="number"
+                placeholder="0"
+                value={prix}
+                onChange={e => setPrix(e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+            <button onClick={ajouterExamen} style={btnPlus}>Enregistrer</button>
           </div>
-          <div style={{ flex: 2 }}>
-            <label style={labelS}>Désignation de l'examen</label>
-            <input
-              placeholder="Ex: NFS, Glycémie, Test Palu..."
-              value={nom}
-              onChange={e => setNom(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={labelS}>Prix Standard (FCFA)</label>
-            <input
-              type="number"
-              placeholder="0"
-              value={prix}
-              onChange={e => setPrix(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-          <button onClick={ajouterExamen} style={btnPlus}>Enregistrer</button>
         </div>
-      </div>
+      </Protect>
 
       {/* LISTE ET RECHERCHE */}
       <div style={{ ...cardStyle, marginTop: '20px' }}>
@@ -170,8 +173,10 @@ export default function LaboratoireView() {
                     <td style={tdStyle}><strong>{ex.libelle}</strong></td>
                     <td style={tdStyle}>{ex.prix_standard.toLocaleString()} FCFA</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <button onClick={() => demarrerModif(ex)} style={btnEdit}>Modifier</button>
-                      <button onClick={() => supprimerExamen(ex.id)} style={btnDelete}>Supprimer</button>
+                      <Protect code="LABO_VALIDATE">
+                        <button onClick={() => demarrerModif(ex)} style={btnEdit}>Modifier</button>
+                        <button onClick={() => supprimerExamen(ex.id)} style={btnDelete}>Supprimer</button>
+                      </Protect>
                     </td>
                   </>
                 )}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getDb, getCompanyInfo } from "../../lib/db";
 import { exportToExcel as utilsExportToExcel } from "../../lib/exportUtils";
+import { Protect } from "../../components/Protect";
 
 // --- INTERFACES ---
 
@@ -684,13 +685,17 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
                     <h1 style={{ margin: 0, color: '#2c3e50', fontSize: '24px' }}>💸 Recouvrement {loading && <span style={{ fontSize: '14px', color: '#e67e22', verticalAlign: 'middle' }}>(Chargement...)</span>}</h1>
                 </div>
                 <div style={{ display: 'flex', background: 'white', borderRadius: '10px', padding: '4px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-                    <button onClick={() => setView('LIST')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', background: view === 'LIST' ? '#3498db' : 'transparent', color: view === 'LIST' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold' }}>Liste Débiteurs</button>
-                    <button onClick={() => setView('HISTORY')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', background: view === 'HISTORY' ? '#3498db' : 'transparent', color: view === 'HISTORY' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold' }}>Historique</button>
+                    <Protect code="RECOUVREMENT_COLLECT">
+                        <button onClick={() => setView('LIST')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', background: view === 'LIST' ? '#3498db' : 'transparent', color: view === 'LIST' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold' }}>Liste Débiteurs</button>
+                    </Protect>
+                    <Protect code="RECOUVREMENT_HISTORY">
+                        <button onClick={() => setView('HISTORY')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', background: view === 'HISTORY' ? '#3498db' : 'transparent', color: view === 'HISTORY' ? 'white' : '#7f8c8d', cursor: 'pointer', fontWeight: 'bold' }}>Historique</button>
+                    </Protect>
                 </div>
             </div >
 
             {view === 'LIST' ? (
-                <>
+                <Protect code="RECOUVREMENT_COLLECT">
                     <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
                         <div style={{ background: 'white', padding: '10px 20px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '10px', flex: 1, boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
                             <span>🔍</span>
@@ -714,53 +719,55 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
                             </div>
                         ))}
                     </div>
-                </>
+                </Protect>
             ) : (
-                <div style={{ flex: 1, overflowY: 'auto', background: 'white', borderRadius: '15px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr style={{ background: '#f8f9fa', color: '#7f8c8d', fontSize: '13px', textAlign: 'left' }}>
-                                <th style={{ padding: '12px' }}>Date</th>
-                                <th style={{ padding: '12px' }}>Motif / Débiteur</th>
-                                <th style={{ padding: '12px' }}>Mode</th>
-                                <th style={{ padding: '12px' }}>Caissier</th>
-                                <th style={{ padding: '12px', textAlign: 'right' }}>Montant</th>
-                                <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {history.map(h => (
-                                <tr key={h.id} style={{ borderBottom: '1px solid #eee' }}>
-                                    <td style={{ padding: '12px' }}>{new Date(h.date_mouvement).toLocaleString()}</td>
-                                    <td style={{ padding: '12px', fontWeight: 'bold' }}>{h.motif}<br /><span style={{ fontSize: '11px', color: '#95a5a6' }}>{h.reference}</span></td>
-                                    <td style={{ padding: '12px' }}>{h.mode_paiement}</td>
-                                    <td style={{ padding: '12px' }}>{h.user_nom || 'Système'}</td>
-                                    <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#27ae60' }}>{h.montant.toLocaleString()} F</td>
-                                    <td style={{ padding: '12px', textAlign: 'center' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'center', gap: '5px' }}>
-                                            {/* Allow if undefined or true */}
-                                            {(currentUser?.can_print !== false && currentUser?.can_print !== 0) && (
-                                                <>
-                                                    <button onClick={() => handlePrintHistory(h)} title="Imprimer Reçu" style={{ background: '#e0f2fe', color: '#0284c7', border: 'none', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🖨️</button>
-                                                    <button onClick={() => handleExportExcel(h)} title="Excel" style={{ background: '#e0f2fe', color: '#107c41', border: 'none', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📊</button>
-                                                </>
-                                            )}
-
-                                            {!!currentUser?.can_edit && (
-                                                <button onClick={() => handleEditHistory(h)} title="Modifier" style={{ background: '#fff3e0', color: '#e67e22', border: 'none', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer' }}>✏️</button>
-                                            )}
-
-                                            {!!currentUser?.can_delete && (
-                                                <button onClick={() => handleDeleteRecovery(h)} title="Supprimer" style={{ background: '#ffebee', color: '#e74c3c', border: 'none', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer' }}>🗑️</button>
-                                            )}
-                                        </div>
-                                    </td>
-
+                <Protect code="RECOUVREMENT_HISTORY">
+                    <div style={{ flex: 1, overflowY: 'auto', background: 'white', borderRadius: '15px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr style={{ background: '#f8f9fa', color: '#7f8c8d', fontSize: '13px', textAlign: 'left' }}>
+                                    <th style={{ padding: '12px' }}>Date</th>
+                                    <th style={{ padding: '12px' }}>Motif / Débiteur</th>
+                                    <th style={{ padding: '12px' }}>Mode</th>
+                                    <th style={{ padding: '12px' }}>Caissier</th>
+                                    <th style={{ padding: '12px', textAlign: 'right' }}>Montant</th>
+                                    <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                            </thead>
+                            <tbody>
+                                {history.map(h => (
+                                    <tr key={h.id} style={{ borderBottom: '1px solid #eee' }}>
+                                        <td style={{ padding: '12px' }}>{new Date(h.date_mouvement).toLocaleString()}</td>
+                                        <td style={{ padding: '12px', fontWeight: 'bold' }}>{h.motif}<br /><span style={{ fontSize: '11px', color: '#95a5a6' }}>{h.reference}</span></td>
+                                        <td style={{ padding: '12px' }}>{h.mode_paiement}</td>
+                                        <td style={{ padding: '12px' }}>{h.user_nom || 'Système'}</td>
+                                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#27ae60' }}>{h.montant.toLocaleString()} F</td>
+                                        <td style={{ padding: '12px', textAlign: 'center' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'center', gap: '5px' }}>
+                                                {/* Allow if undefined or true */}
+                                                {(currentUser?.can_print !== false && currentUser?.can_print !== 0) && (
+                                                    <>
+                                                        <button onClick={() => handlePrintHistory(h)} title="Imprimer Reçu" style={{ background: '#e0f2fe', color: '#0284c7', border: 'none', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🖨️</button>
+                                                        <button onClick={() => handleExportExcel(h)} title="Excel" style={{ background: '#e0f2fe', color: '#107c41', border: 'none', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📊</button>
+                                                    </>
+                                                )}
+
+                                                {!!currentUser?.can_edit && (
+                                                    <button onClick={() => handleEditHistory(h)} title="Modifier" style={{ background: '#fff3e0', color: '#e67e22', border: 'none', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer' }}>✏️</button>
+                                                )}
+
+                                                {!!currentUser?.can_delete && (
+                                                    <button onClick={() => handleDeleteRecovery(h)} title="Supprimer" style={{ background: '#ffebee', color: '#e74c3c', border: 'none', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer' }}>🗑️</button>
+                                                )}
+                                            </div>
+                                        </td>
+
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Protect>
             )
             }
 

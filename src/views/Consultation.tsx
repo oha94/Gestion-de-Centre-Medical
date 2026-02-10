@@ -1,5 +1,6 @@
 import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../lib/db";
+import { Protect } from "../components/Protect";
 
 export default function ConsultationView() {
   const [consultations, setConsultations] = useState<any[]>([]);
@@ -78,31 +79,33 @@ export default function ConsultationView() {
       </div>
 
       {/* FORMULAIRE D'AJOUT */}
-      <div style={cardStyle}>
-        <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0, color: '#3498db' }}>➕ Nouveau type de consultation</h3>
-        <div style={{ display: 'flex', gap: '15px', marginTop: '15px', alignItems: 'flex-end' }}>
-          <div style={{ flex: 2 }}>
-            <label style={labelS}>Désignation</label>
-            <input
-              placeholder="Ex: Consultation Générale, Pédiatrie, Gynécologie..."
-              value={nom}
-              onChange={e => setNom(e.target.value)}
-              style={inputStyle}
-            />
+      <Protect code="CONSULT_CREATE">
+        <div style={cardStyle}>
+          <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0, color: '#3498db' }}>➕ Nouveau type de consultation</h3>
+          <div style={{ display: 'flex', gap: '15px', marginTop: '15px', alignItems: 'flex-end' }}>
+            <div style={{ flex: 2 }}>
+              <label style={labelS}>Désignation</label>
+              <input
+                placeholder="Ex: Consultation Générale, Pédiatrie, Gynécologie..."
+                value={nom}
+                onChange={e => setNom(e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelS}>Prix Standard (FCFA)</label>
+              <input
+                type="number"
+                placeholder="0"
+                value={prix}
+                onChange={e => setPrix(e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+            <button onClick={ajouterConsultation} style={btnPlus}>Enregistrer</button>
           </div>
-          <div style={{ flex: 1 }}>
-            <label style={labelS}>Prix Standard (FCFA)</label>
-            <input
-              type="number"
-              placeholder="0"
-              value={prix}
-              onChange={e => setPrix(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-          <button onClick={ajouterConsultation} style={btnPlus}>Enregistrer</button>
         </div>
-      </div>
+      </Protect>
 
       {/* LISTE ET RECHERCHE */}
       <div style={{ ...cardStyle, marginTop: '20px' }}>
@@ -141,8 +144,10 @@ export default function ConsultationView() {
                     <td style={tdStyle}><strong>{item.libelle}</strong></td>
                     <td style={tdStyle}>{item.prix_standard.toLocaleString()} FCFA</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <button onClick={() => demarrerModif(item)} style={btnEdit}>Modifier</button>
-                      <button onClick={() => supprimerConsultation(item.id)} style={btnDelete}>Supprimer</button>
+                      <Protect code="CONSULT_CREATE">
+                        <button onClick={() => demarrerModif(item)} style={btnEdit}>Modifier</button>
+                        <button onClick={() => supprimerConsultation(item.id)} style={btnDelete}>Supprimer</button>
+                      </Protect>
                     </td>
                   </>
                 )}

@@ -5,7 +5,9 @@ import { SQL_PRESTATIONS } from "./seeds/data_prestations";
 import { SQL_ARTICLES_PART1 } from "./seeds/data_articles_part1";
 import { SQL_ARTICLES_PART2 } from "./seeds/data_articles_part2";
 import { AuthProvider, useAuth } from "./contexts/AuthContext"; // Import Context
-import DatabaseConfig from "./views/setup/DatabaseConfig"; // New import
+import DatabaseConfig from "./views/setup/DatabaseConfig";
+import { KitService } from "./services/KitService";
+import { PermissionSeeder } from "./services/PermissionSeeder"; // New import
 import Setup from "./views/Setup"; // Setup wizard
 import { useTheme } from "./contexts/ThemeContext";
 
@@ -109,6 +111,10 @@ function AppContent() {
 
 
       initialiserGénéral();
+
+      // Initialisation des modules
+      KitService.initTables();
+
     } catch (e: any) {
       console.error("DB Check Failed:", e);
       if (e.message === "DB_NOT_CONFIGURED" || e.toString().includes("DB_NOT_CONFIGURED")) {
@@ -893,10 +899,11 @@ function AppContent() {
       }
 
       console.log("🚀 Initialisation terminée avec succès.");
-
+      // Kits déjà initialisés au début
+      await PermissionSeeder.seed();
+      setLoading(false);
     } catch (e: any) {
-      console.error("Initialisation error:", e);
-    } finally {
+      console.error("Erreur initialisation générale:", e);
       setLoading(false);
     }
   };

@@ -1,6 +1,9 @@
 import { useState, useEffect, CSSProperties } from "react";
 
 import { getDb } from "../../lib/db";
+import { useAuth } from "../../contexts/AuthContext";
+import { Protect } from "../../components/Protect";
+import { KitService } from "../../services/KitService";
 
 /* const pulseStyle = `
 @keyframes pulse {
@@ -39,6 +42,7 @@ type CatalogItem = {
 };
 
 export default function Caisse({ softwareDate, currentUser }: { softwareDate?: string, currentUser?: any }) {
+    const { hasPermission } = useAuth();
     // DATA STATES
     const [patients, setPatients] = useState<any[]>([]);
     const [personnels, setPersonnels] = useState<any[]>([]);
@@ -248,6 +252,26 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                     coefficient_conversion: p.coefficient_conversion
                 });
             });
+
+            // 3. KITS
+            try {
+                const kits = await KitService.getKits();
+                kits.forEach(k => {
+                    allItems.push({
+                        id: k.id,
+                        libelle: "📦 " + k.nom,
+                        prix: k.prix_standard,
+                        type: 'ACTE', // Treated as ACTE for simplicity, or we can add 'KIT' type
+                        categorie: 'AUTRE', // Or specific category
+                        stock: 999, // Kits are virtual, stock check is done on components
+                        color: '#d35400',
+                        icon: '📦'
+                    });
+                });
+            } catch (e) {
+                console.error("Erreur chargement kits", e);
+            }
+
             // Removed duplicate loop
 
             setItems(allItems);
@@ -305,6 +329,96 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         }
     }, [searchQuery, patients, personnels, selectionType]);
 
+    // --- DISCOUNT LOGIC ---
+    useEffect(() => {
+        if (panier.length > 0) {
+            recalculateCart();
+        }
+    }, [patientSelectionne, personnelSelectionne, selectionType]);
+
+    const recalculateCart = () => {
+        setPanier(prev => prev.map(item => {
+            const { prix, partAssureur, partPatient } = calculateDiscountedPrice(item, item.qte);
+            return {
+                ...item,
+                prixUnitaire: prix,
+                partAssureurUnitaire: partAssureur,
+                partPatientUnitaire: partPatient
+            };
+        }));
+    };
+
+    const calculateDiscountedPrice = (item: CatalogItem | CartItem, _qte: number = 1): { prix: number, partAssureur: number, partPatient: number } => {
+        // Safe access to union properties
+        const itemAny = item as any;
+        let finalPrice = itemAny.prixUnitaire !== undefined ? itemAny.prixUnitaire : (itemAny.prix || 0);
+
+        // 1. Logic PERSONNEL
+        if (selectionType === 'PERSONNEL') {
+            const libelle = item.libelle.toUpperCase();
+            const cat = item.categorie?.toUpperCase() || '';
+            const type = item.type;
+
+            if (type === 'ACTE' && cat.includes('CONSULTATION')) {
+                if (libelle.includes('GENERAL') || libelle.includes('GÉNÉRAL')) finalPrice = 0; // Gratuit Généraliste
+                // Spécialiste = Plein tarif (no change)
+            }
+            else if (type === 'ACTE' && (cat.includes('LABO') || cat.includes('EXAMEN'))) {
+                finalPrice = Math.round(finalPrice * 0.7); // -30%
+            }
+            else if (type === 'ACTE' && libelle.includes('AMI')) {
+                finalPrice = Math.round(finalPrice * 0.7); // -30%
+            }
+            else if (type === 'MEDICAMENT') {
+                finalPrice = Math.round(finalPrice * 0.85); // -15%
+            }
+            else if (type === 'HOSPITALISATION') {
+                if (libelle.includes('VENTIL')) finalPrice = 0; // Gratuit Ventilée
+                // Climatisée / Repas = Plein tarif
+            }
+        }
+        // 2. Logic FAMILLE PERSONNEL
+        else if (selectionType === 'PATIENT' && patientSelectionne && entreprise?.id_famille_personnel) {
+            if (patientSelectionne.societe_id == entreprise.id_famille_personnel) {
+                const libelle = item.libelle.toUpperCase();
+                const cat = item.categorie?.toUpperCase() || '';
+                const type = item.type;
+
+                if (type === 'ACTE' && cat.includes('CONSULTATION')) {
+                    if (finalPrice > 1000) finalPrice = 1000; // Forfait 1000F
+                }
+                else if (type === 'ACTE' && (cat.includes('LABO') || cat.includes('EXAMEN'))) {
+                    finalPrice = Math.round(finalPrice * 0.7); // -30%
+                }
+                else if (type === 'ACTE' && libelle.includes('AMI')) {
+                    finalPrice = Math.round(finalPrice * 0.7); // -30%
+                }
+                else if (type === 'HOSPITALISATION' && cat.includes('HOSPITA')) {
+                    finalPrice = Math.round(finalPrice * 0.6); // -40% Chambre
+                }
+                // Médicaments = Plein tarif
+            }
+        }
+
+        // 3. Assurance Calculation
+        let partAssureur = 0;
+        let partPatient = finalPrice;
+        const useAssurance = (item as CartItem).useAssurance !== undefined ? (item as CartItem).useAssurance : false;
+
+        // If 'useAssurance' is true (or check defaults if we want auto-apply)
+        // Here we rely on the item state, but for new items we might want defaults.
+        // For recalculation, we keep existing 'useAssurance'.
+        // For new items (in ajouterAuPanier), we default to false or try to auto-apply.
+
+        if (useAssurance && patientSelectionne?.taux_couverture) {
+            partAssureur = Math.round(finalPrice * patientSelectionne.taux_couverture / 100);
+            partPatient = finalPrice - partAssureur;
+        }
+
+        return { prix: finalPrice, partAssureur, partPatient };
+    };
+
+
     const chargerAdmissionsPatient = async (patientId: number) => {
         try {
             console.log("🔍 Loading admissions for patient:", patientId);
@@ -340,6 +454,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
 
     // SMART ADD TO CART (Auto-Deconditionnement)
     const handleAddToCart = async (item: CatalogItem) => {
+        if (!hasPermission("CAISSE_ADD_ITEM")) return alert("⛔ Accès refusé : Vous n'avez pas le droit d'ajouter des articles.");
         if (item.type === 'MEDICAMENT') {
             const currentStock = item.stock || 0;
 
@@ -392,7 +507,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         }
     };
 
-    // AJOUTER AU PANIER AVEC REGROUPEMENT
+    // AJOUTER AU PANIER AVEC REGROUPEMENT ET REDUCTIONS
     const ajouterAuPanier = (item: CatalogItem, initialQte: number = 1) => {
         if (item.type === 'MEDICAMENT' && (item.stock || 0) <= 0) return alert("❌ Stock épuisé !");
 
@@ -400,20 +515,23 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             const index = prev.findIndex(p => p.itemId === item.id && p.type === item.type);
             if (index > -1) {
                 const updated = [...prev];
-                updated[index].qte += 1;
+                updated[index].qte += initialQte;
                 return updated;
             } else {
+                // Calculate Initial Price with Discounts
+                const { prix, partAssureur, partPatient } = calculateDiscountedPrice(item);
+
                 const ligne: CartItem = {
                     uniqueId: Date.now() + Math.random(),
                     itemId: item.id,
                     libelle: item.libelle,
                     type: item.type,
                     categorie: item.categorie,
-                    prixUnitaire: item.prix,
+                    prixUnitaire: prix, // use discounted price
                     qte: initialQte,
                     stock: item.stock,
-                    partAssureurUnitaire: 0,
-                    partPatientUnitaire: item.prix,
+                    partAssureurUnitaire: partAssureur,
+                    partPatientUnitaire: partPatient,
                     useAssurance: false
                 };
                 return [...prev, ligne];
@@ -444,8 +562,11 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         setPanier(prev => prev.map(item => {
             if (item.uniqueId === uniqueId) {
                 const newUseAssurance = !item.useAssurance;
+
+                // Recalculate with new assurance state (price constant)
                 const taux = patientSelectionne.taux_couverture || 0;
                 const partAssurU = (newUseAssurance) ? Math.round(item.prixUnitaire * taux / 100) : 0;
+
                 return {
                     ...item,
                     useAssurance: newUseAssurance,
@@ -481,6 +602,110 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
     const totalPartAssureur = panier.reduce((acc, i) => acc + (i.partAssureurUnitaire * i.qte), 0);
     const totalNetPatient = panier.reduce((acc, i) => acc + (i.partPatientUnitaire * i.qte), 0);
 
+    // --- TICKET PREVIEW & PRINT ---
+    const imprimerTicketCaisse = async (ticketNum: string, mode: string) => {
+        try {
+            // 0. Prepare Data
+            const data = {
+                entreprise: entreprise || { nom_entreprise: 'CENTRE MEDICAL' },
+                ticketNum,
+                dateVente: new Date(),
+                patient: patientSelectionne,
+                personnel: personnelSelectionne,
+                caissier: currentUser?.nom_complet || 'Système',
+                items: panier,
+                totalBrut,
+                totalPartAssureur,
+                totalNetPatient,
+                paiement: {
+                    mode: mode,
+                    montantVerse: (montantVerse1 || 0) + (montantVerse2 || 0),
+                    rendu: ((montantVerse1 || 0) + (montantVerse2 || 0)) - totalNetPatient
+                },
+                insForm: insForm
+            };
+
+            const { generateTicketHTML } = await import("../../utils/ticketGenerator");
+            const html = generateTicketHTML(data, '80mm');
+
+            // 1. Check Configuration
+            const db = await getDb();
+            const settings = await db.select<any[]>("SELECT * FROM app_parametres_app LIMIT 1");
+            const caissePrinter = settings[0]?.imprimante_caisse;
+
+            if (caissePrinter && caissePrinter !== "Par défaut") {
+                // --- BACKEND PRINTING ---
+                const html2canvas = (await import('html2canvas')).default;
+                // const jsPDF = (await import('jspdf')).default; // Unused
+                const { invoke } = await import('@tauri-apps/api/core');
+
+                // Render off-screen
+                const container = document.createElement('div');
+                container.style.position = 'absolute';
+                container.style.left = '-9999px';
+                container.style.top = '0';
+                container.style.width = '80mm'; // Enforce width
+                container.style.background = 'white';
+                container.innerHTML = html;
+                document.body.appendChild(container);
+
+                // Wait for render
+                await new Promise(r => setTimeout(r, 100));
+
+                try {
+                    const canvas = await html2canvas(container, { scale: 2.5, useCORS: true });
+                    // Get PNG Buffer directly
+                    // canvas.toBlob is async, but we can use toDataURL and decode manually or just use a helper
+                    const imgData = canvas.toDataURL('image/png');
+
+                    // Convert Base64 to Uint8Array
+                    const base64 = imgData.split(',')[1];
+                    const binaryString = window.atob(base64);
+                    const len = binaryString.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    // Send bytes to backend (which now expects image bytes and prints via PowerShell Image logic)
+                    await invoke('print_pdf', { printerName: caissePrinter, fileContent: Array.from(bytes) });
+                } catch (e) {
+                    console.error("Print Error", e);
+                    // alert("Erreur impression: " + e); // User requested removal
+                } finally {
+                    document.body.removeChild(container);
+                }
+
+            } else {
+                // --- BROWSER PRINTING (Fallback) ---
+                const iframe = document.createElement('iframe');
+                iframe.style.position = 'fixed';
+                iframe.style.right = '0';
+                iframe.style.bottom = '0';
+                iframe.style.width = '0';
+                iframe.style.height = '0';
+                iframe.style.border = '0';
+                document.body.appendChild(iframe);
+
+                const doc = iframe.contentWindow?.document;
+                if (!doc) return;
+
+                doc.open();
+                doc.write(html);
+                doc.write(`
+                    <script>
+                        window.onload = () => {
+                            window.print();
+                            setTimeout(() => { window.frameElement.remove(); }, 1000);
+                        };
+                    </script>
+                `);
+                doc.close();
+            }
+
+        } catch (e) { console.error("Erreur imprimerTicketCaisse", e); }
+    };
+
     const validerPaiement = async () => {
         const totalVerse = (montantVerse1 || 0) + (montantVerse2 || 0);
 
@@ -509,9 +734,9 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
             const ratioPaiement = (totalNetPatient === 0) ? 1 : (totalVerse / totalNetPatient);
 
             // Génération du numéro de ticket
-            // Génération du numéro de ticket séquentiel global
-            const countGlobal = await db.select<any[]>("SELECT COUNT(DISTINCT numero_ticket) as count FROM ventes");
-            const nextSeq = (countGlobal[0]?.count || 0) + 1;
+            // Génération du numéro de ticket séquentiel global (fix: use MAX instead of COUNT)
+            const countGlobal = await db.select<any[]>("SELECT MAX(CAST(numero_ticket AS UNSIGNED)) as maxNum FROM ventes");
+            const nextSeq = (countGlobal[0]?.maxNum || 0) + 1;
             const ticketNum = nextSeq.toString();
 
             for (const item of panier) {
@@ -560,8 +785,8 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                 }
             }
 
-            // Imprimer le ticket automatiquement -> DESACTIVÉ (Géré par l'interface)
-            // imprimerTicketCaisse(ticketNum, finalMode);
+            // Imprimer le ticket automatiquement
+            await imprimerTicketCaisse(ticketNum, finalMode);
 
             // alert("✅ Vente enregistrée !"); // Removed for immediate print
             setPanier([]);
@@ -580,7 +805,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
         } catch (e) { console.error(e); alert("Erreur."); }
     };
 
-    // --- TICKET PREVIEW & PRINT ---
+
 
 
 
@@ -854,8 +1079,14 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                         <input
                                             type="number"
                                             value={item.prixUnitaire}
+                                            readOnly={!hasPermission("CAISSE_FORCE_PRICE")}
+                                            title={!hasPermission("CAISSE_FORCE_PRICE") ? "Modification de prix interdite" : ""}
                                             onChange={e => updatePrixItem(item.uniqueId, parseInt(e.target.value) || 0)}
-                                            style={{ width: '80px', padding: '2px 5px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '0.9rem', color: '#555', marginRight: '5px' }}
+                                            style={{
+                                                width: '80px', padding: '2px 5px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '0.9rem', color: '#555', marginRight: '5px',
+                                                background: !hasPermission("CAISSE_FORCE_PRICE") ? '#f0f0f0' : 'white',
+                                                cursor: !hasPermission("CAISSE_FORCE_PRICE") ? 'not-allowed' : 'text'
+                                            }}
                                         />
                                         <span style={{ fontSize: '0.85rem', color: '#7f8c8d' }}>F / unité</span>
                                     </div>
@@ -876,13 +1107,20 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                     {(item.prixUnitaire * item.qte).toLocaleString()}
                                 </div>
 
-                                <button onClick={() => setPanier(p => p.filter(i => i.uniqueId !== item.uniqueId))} style={{ marginLeft: '15px', background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+                                <Protect code="CAISSE_DEL_ROW">
+                                    <button onClick={() => setPanier(p => p.filter(i => i.uniqueId !== item.uniqueId))} style={{ marginLeft: '15px', background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+                                </Protect>
                             </div>
 
                             <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 {patientSelectionne?.taux_couverture > 0 ? (
                                     <label className="switch" style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
-                                        <input type="checkbox" checked={item.useAssurance} onChange={() => toggleAssuranceItem(item.uniqueId)} />
+                                        <input
+                                            type="checkbox"
+                                            checked={item.useAssurance}
+                                            disabled={!hasPermission("CAISSE_TOGGLE_ASSUR")}
+                                            onChange={() => toggleAssuranceItem(item.uniqueId)}
+                                        />
                                         <span style={{ fontSize: '0.8rem', color: '#3498db' }}>Prise en charge {patientSelectionne.nom_assurance} ({patientSelectionne.taux_couverture}%)</span>
                                         {item.useAssurance && <span style={{ fontSize: '0.8rem', color: '#27ae60', fontWeight: 'bold', marginLeft: '5px' }}>- {(item.partAssureurUnitaire * item.qte).toLocaleString()} F</span>}
                                     </label>
@@ -911,13 +1149,15 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                         <span>A PAYER</span>
                         <span>{totalNetPatient.toLocaleString()} F</span>
                     </div>
-                    <button
-                        disabled={panier.length === 0 || !selectionValidee}
-                        onClick={() => setShowPaymentDrawer(true)}
-                        style={{ width: '100%', padding: '20px', background: panier.length && selectionValidee ? '#27ae60' : '#bdc3c7', color: 'white', border: 'none', borderRadius: '15px', fontSize: '1.3rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 5px 15px rgba(39, 174, 96, 0.3)' }}
-                    >
-                        PROCÉDER AU RÈGLEMENT
-                    </button>
+                    <Protect code="CAISSE_VALIDATE">
+                        <button
+                            disabled={panier.length === 0 || !selectionValidee}
+                            onClick={() => setShowPaymentDrawer(true)}
+                            style={{ width: '100%', padding: '20px', background: panier.length && selectionValidee ? '#27ae60' : '#bdc3c7', color: 'white', border: 'none', borderRadius: '15px', fontSize: '1.3rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 5px 15px rgba(39, 174, 96, 0.3)' }}
+                        >
+                            PROCÉDER AU RÈGLEMENT
+                        </button>
+                    </Protect>
                 </div>
             </div >
 
@@ -1217,9 +1457,8 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
                                 <button
                                     onClick={async () => {
                                         await validerPaiement();
-                                        // const hasAssurance = panier.some(i => i.useAssurance);
-                                        // Force ONE copy as requested
-                                        imprimerRecu(1);
+                                        // Print is now handled inside validerPaiement via imprimerTicketCaisse (data-driven)
+                                        // await imprimerRecu(1); 
                                         setShowReceiptPreview(false);
                                     }}
                                     style={{ flex: 2, padding: '12px', borderRadius: '8px', border: 'none', background: '#27ae60', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
@@ -1266,51 +1505,7 @@ export default function Caisse({ softwareDate, currentUser }: { softwareDate?: s
     );
 }
 
-// Helper pour l'impression
-const imprimerRecu = (copies: number) => {
-    const content = document.getElementById('receipt-content')?.innerHTML;
-    if (!content) return;
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document;
-    if (!doc) return;
-
-    doc.open();
-    doc.write(`
-            <html>
-                <head>
-                    <style>
-                        @page { size: 80mm auto; margin: 0; }
-                        body { font-family: 'Courier New', Courier, monospace; width: 80mm; padding: 5mm; margin: 0; }
-                        table { width: 100%; border-collapse: collapse; }
-                        th, td { font-size: 12px; }
-                        .center { text-align: center; }
-                    </style>
-                </head>
-                <body>
-                    ${content}
-                    ${copies > 1 ? '<div style="page-break-before: always;"></div>' + content : ''}
-                    <script>
-                window.onload = () => {
-                            window.print();
-                    setTimeout(() => {window.frameElement.remove(); }, 1000);
-                };
-                    </script>
-                </body>
-            </html>
-            `);
-    doc.close();
-};
 
 const cardStyle: CSSProperties = { padding: '15px', borderRadius: '15px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', cursor: 'pointer', display: 'flex', flexDirection: 'column', height: '140px', transition: 'transform 0.2s', background: 'white' };
 const badgeStyle: CSSProperties = { background: '#27ae60', color: 'white', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', fontWeight: 'bold' };
 const inputS: CSSProperties = { flex: 1, padding: '15px', borderRadius: '12px', border: '1px solid #ddd', fontSize: '1.1rem' };
-

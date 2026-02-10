@@ -11,6 +11,7 @@ import DeconditionnementView from "./Deconditionnement";
 import Regularisation from "./Regularisation";
 import InventaireView from "./Inventaire";
 import Commande from "./Commande";
+import { useAuth } from "../../contexts/AuthContext";
 
 // --- ICONS (Simple Emoji for now, can be Lucide/FontAwesome) ---
 const ICONS = {
@@ -58,35 +59,41 @@ export default function StockMainView({ currentUser }: { currentUser?: any }) {
     }
   };
 
+  const { userPermissions, user } = useAuth();
+
+  // Helper to check permission
+  const can = (code: string) => user?.role_nom === 'Administrateur' || userPermissions.includes(code);
+
   const menuItems = [
-    { id: "catalogue", label: "Catalogue / Produits", icon: ICONS.catalogue },
-    { id: "deconditionnement", label: "Déconditionnement", icon: ICONS.deconditionnement },
-    { id: "commande", label: "Commandes", icon: ICONS.commande },
-    { id: "livraison", label: "Bons de livraison", icon: ICONS.livraison },
-    { id: "retour", label: "Bons de retour", icon: ICONS.retour },
-    { id: "avoir", label: "Avoirs fournisseur", icon: ICONS.avoir },
-    { id: "compte", label: "Compte fournisseur", icon: ICONS.compte },
+    { id: "catalogue", label: "Catalogue / Produits", icon: ICONS.catalogue, required: 'STOCK_VIEW' },
+    { id: "deconditionnement", label: "Déconditionnement", icon: ICONS.deconditionnement, required: 'STOCK_ENTRY' },
+    { id: "commande", label: "Commandes", icon: ICONS.commande, required: 'STOCK_ENTRY' },
+    { id: "livraison", label: "Bons de livraison", icon: ICONS.livraison, required: 'STOCK_ENTRY' },
+    { id: "retour", label: "Bons de retour", icon: ICONS.retour, required: 'STOCK_EXIT' },
+    { id: "avoir", label: "Avoirs fournisseur", icon: ICONS.avoir, required: 'STOCK_ENTRY' },
+    { id: "compte", label: "Compte fournisseur", icon: ICONS.compte, required: 'STOCK_VIEW' },
 
     // GROUPE INVENTAIRES
     {
-      id: "grp_inventaire", label: "Inventaires", icon: ICONS.inventaire, isGroup: true,
+      id: "grp_inventaire", label: "Inventaires", icon: ICONS.inventaire, isGroup: true, required: 'STOCK_INVENTORY',
       children: [
         { id: "saisie_inventaire", label: "Saisie d'inventaire", icon: "📝" },
         { id: "regularisation", label: "Régularisation", icon: ICONS.regularisation }
       ]
     },
 
-
-
     // GROUPE PARAMETRES
     {
-      id: "grp_parametre", label: "Paramètres", icon: ICONS.parametre, isGroup: true,
+      id: "grp_parametre", label: "Paramètres", icon: ICONS.parametre, isGroup: true, required: 'STOCK_RAYONS',
       children: [
         { id: "rayon", label: "Rayons / Emplacements", icon: ICONS.rayon },
         { id: "fournisseur", label: "Fournisseurs", icon: ICONS.fournisseur }
       ]
     }
-  ];
+  ].filter(item => {
+    if (!item.required) return true;
+    return can(item.required);
+  });
 
   const renderContent = () => {
     switch (activeSub) {
