@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, CSSProperties } from "react";
 import { getDb, getCompanyInfo } from "../lib/db";
 import { exportToExcel as utilsExportToExcel } from "../lib/exportUtils";
 
@@ -6,12 +6,13 @@ import { useAuth } from "../contexts/AuthContext";
 import { Protect } from "../components/Protect";
 
 export default function PatientsView() {
-  const { user, hasPermission } = useAuth();
+  const { user, checkGranular } = useAuth();
 
   // Granular Permissions Checks
-  const canCreate = hasPermission("PATIENTS_ADD");
-  const canUpdate = hasPermission("PATIENTS_EDIT");
-  const canDelete = hasPermission("PATIENTS_DELETE") || user?.role_nom === 'Administrateur'; // Assuming there might be a PATIENTS_DELETE or strictly Admin
+  const perms = checkGranular('patients');
+  const canCreate = perms.canCreate;
+  const canUpdate = perms.canUpdate;
+  const canDelete = perms.canDelete;
 
   // currentUser was used for printing PDF signature (currentUser.nom_complet)
   // We can use 'user' from context for that.
@@ -19,8 +20,20 @@ export default function PatientsView() {
   const [f, setF] = useState({ carnet: "", nom: "", sexe: "Homme", dateN: "", tel1: "", tel2: "", ville: "", spref: "", village: "" });
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
   const [showPopupModif, setShowPopupModif] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [search, setSearch] = useState("");
   const [historique, setHistorique] = useState<any[]>([]);
+
+  const formatPhoneNumber = (val: string) : string => {
+    const clean = val.replace(/\D/g, '').substring(0, 10);
+    if (!clean) return "";
+    let formatted = "";
+    if (clean.length > 0) formatted += clean.substring(0, 2);
+    if (clean.length > 2) formatted += " " + clean.substring(2, 4);
+    if (clean.length > 4) formatted += " " + clean.substring(4, 7);
+    if (clean.length > 7) formatted += " " + clean.substring(7, 10);
+    return formatted;
+  };
 
   // --- HISTORIQUE PASSAGES ---
   const [viewMode, setViewMode] = useState<'PATIENTS' | 'VISITS'>('PATIENTS');
@@ -45,8 +58,23 @@ export default function PatientsView() {
 
   const chargerPatients = async () => {
     const db = await getDb();
+    try {
+      // Auto-clean: Uniformise les noms et carnets en majuscules silencieusement
+      await db.execute("UPDATE patients SET numero_carnet = UPPER(numero_carnet), nom_prenoms = UPPER(nom_prenoms) WHERE numero_carnet != UPPER(numero_carnet) OR nom_prenoms != UPPER(nom_prenoms)");
+      
+      // Auto-clean: Formatage des numéros de téléphone (Tentative simple)
+      // Note: On ne peut pas facilement faire une regex complexe en SQL pour le formatage sans fonctions d'extension
+      // Mais on peut au moins enlever les espaces parasites ou forcer le chargement
+    } catch (e) { console.error("Auto-clean error", e); }
     const res = await db.select<any[]>("SELECT * FROM patients ORDER BY date_creation DESC");
-    setPatients(res);
+    
+    // On reformate les numéros de téléphone côté client pour s'assurer du bon affichage
+    const formatted = res.map(p => ({
+      ...p,
+      telephone: formatPhoneNumber(p.telephone || ""),
+      telephone2: formatPhoneNumber(p.telephone2 || "")
+    }));
+    setPatients(formatted);
   };
 
   const chargerAssurances = async () => {
@@ -59,6 +87,33 @@ export default function PatientsView() {
     const db = await getDb();
     const res = await db.select<any[]>("SELECT * FROM societes WHERE statut='actif' ORDER BY nom_societe ASC");
     setSocietes(res);
+  };
+
+  const proposeNextCarnet = async () => {
+    try {
+      const db = await getDb();
+      // Search for any existing carnet with a hyphen followed by numbers
+      const res = await db.select<any[]>("SELECT numero_carnet FROM patients WHERE numero_carnet LIKE '%-%' ORDER BY id DESC LIMIT 1");
+      
+      if (res.length > 0) {
+        const last = res[0].numero_carnet;
+        const match = last.match(/^([a-zA-Z]+-)(\d+)$/);
+        
+        if (match) {
+          const prefix = match[1].toUpperCase(); // FORCE UPPERCASE
+          const numStr = match[2]; // e.g., "002"
+          const nextNum = parseInt(numStr) + 1;
+          const padded = nextNum.toString().padStart(numStr.length, '0');
+          setF(prev => ({ ...prev, carnet: `${prefix}${padded}` }));
+          return;
+        }
+      }
+      
+      // Default fallback if no data matches the pattern
+      setF(prev => ({ ...prev, carnet: "FC-001" }));
+    } catch (e) {
+      console.error("Error proposing carnet", e);
+    }
   };
 
   useEffect(() => {
@@ -89,9 +144,10 @@ export default function PatientsView() {
     const db = await getDb();
     await db.execute(
       "INSERT INTO patients (numero_carnet, nom_prenoms, sexe, date_naissance, telephone, telephone2, ville, sous_prefecture, village) VALUES (?,?,?,?,?,?,?,?,?)",
-      [f.carnet, f.nom, f.sexe, f.dateN, f.tel1, f.tel2, f.ville, f.spref, f.village]
+      [f.carnet.toUpperCase(), f.nom.toUpperCase(), f.sexe, f.dateN, f.tel1, f.tel2, f.ville, f.spref, f.village]
     );
     setF({ carnet: "", nom: "", sexe: "Homme", dateN: "", tel1: "", tel2: "", ville: "", spref: "", village: "" });
+    setShowAddForm(false);
     chargerPatients();
     alert("Patient enregistré avec succès");
   };
@@ -117,8 +173,8 @@ export default function PatientsView() {
     await db.execute(
       "UPDATE patients SET numero_carnet=?, nom_prenoms=?, sexe=?, date_naissance=?, telephone=?, telephone2=?, ville=?, sous_prefecture=?, village=? WHERE id=?",
       [
-        selectedPatient.numero_carnet,
-        selectedPatient.nom_prenoms,
+        selectedPatient.numero_carnet.toUpperCase(),
+        selectedPatient.nom_prenoms.toUpperCase(),
         selectedPatient.sexe,
         selectedPatient.date_naissance,
         selectedPatient.telephone,
@@ -384,11 +440,16 @@ export default function PatientsView() {
   return (
     <div style={{ padding: '10px' }}>
       {!selectedPatient ? (
-        <>
+        <div className="patients-list-view">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h1>👥 Gestion des Patients</h1>
-            <div style={{ background: '#3498db', color: 'white', padding: '10px 20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-              Total Patients : <strong>{patients.length}</strong>
+            <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+              {canCreate && !showAddForm && (
+                <button onClick={() => { setShowAddForm(true); proposeNextCarnet(); }} style={{ background: '#27ae60', color: 'white', padding: '12px 25px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>➕ Nouveau Patient</button>
+              )}
+              <div style={{ background: '#3498db', color: 'white', padding: '10px 20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                Total Patients : <strong>{patients.length}</strong>
+              </div>
             </div>
           </div>
 
@@ -432,28 +493,32 @@ export default function PatientsView() {
             </div>
           ) : (
             <>
-              <div style={cardStyle}>
-                <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px' }}>🆕 Nouvelle Inscription</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr', gap: '10px', marginBottom: '15px', marginTop: '15px' }}>
-                  <div style={inputGroup}><label style={labelS}>N° Carnet</label><input value={f.carnet} onChange={e => setF({ ...f, carnet: e.target.value })} style={inputStyle} /></div>
-                  <div style={inputGroup}><label style={labelS}>Nom et Prénoms</label><input value={f.nom} onChange={e => setF({ ...f, nom: e.target.value })} style={inputStyle} /></div>
-                  <div style={inputGroup}><label style={labelS}>Sexe</label><select value={f.sexe} onChange={e => setF({ ...f, sexe: e.target.value })} style={inputStyle}><option value="Homme">Homme</option><option value="Femme">Femme</option></select></div>
-                  <div style={inputGroup}><label style={labelS}>Date de Naissance</label><input type="date" value={f.dateN} onChange={e => setF({ ...f, dateN: e.target.value })} style={inputStyle} /></div>
+              {showAddForm && (
+                <div style={{ ...cardStyle, marginBottom: '20px', borderLeft: '5px solid #2ecc71' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee', paddingBottom: '10px', marginBottom: '15px' }}>
+                    <h3 style={{ margin: 0 }}>🆕 Nouvelle Inscription</h3>
+                    <button onClick={() => setShowAddForm(false)} style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontWeight: 'bold' }}>Fermer</button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+                    <div style={inputGroup}><label style={labelS}>N° Carnet (Auto)</label><input value={f.carnet} onChange={e => setF({ ...f, carnet: e.target.value.toUpperCase() })} style={{ ...inputStyle, background: '#fff', fontWeight: 'bold' }} /></div>
+                    <div style={inputGroup}><label style={labelS}>Nom et Prénoms</label><input value={f.nom} onChange={e => setF({ ...f, nom: e.target.value.toUpperCase() })} style={inputStyle} placeholder="Nom Complet" /></div>
+                    <div style={inputGroup}><label style={labelS}>Sexe</label><select value={f.sexe} onChange={e => setF({ ...f, sexe: e.target.value })} style={inputStyle}><option value="Homme">Homme</option><option value="Femme">Femme</option></select></div>
+                    <div style={inputGroup}><label style={labelS}>Date de Naissance</label><input type="date" value={f.dateN} onChange={e => setF({ ...f, dateN: e.target.value })} style={inputStyle} /></div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
+                    <div style={inputGroup}><label style={labelS}>Téléphone 1</label><input value={f.tel1} onChange={e => setF({ ...f, tel1: formatPhoneNumber(e.target.value) })} style={inputStyle} /></div>
+                    <div style={inputGroup}><label style={labelS}>Téléphone 2</label><input value={f.tel2} onChange={e => setF({ ...f, tel2: formatPhoneNumber(e.target.value) })} style={inputStyle} /></div>
+                    <div style={inputGroup}><label style={labelS}>Ville</label><input value={f.ville} onChange={e => setF({ ...f, ville: e.target.value })} style={inputStyle} /></div>
+                    <div style={inputGroup}><label style={labelS}>S/Préfecture</label><input value={f.spref} onChange={e => setF({ ...f, spref: e.target.value })} style={inputStyle} /></div>
+                    <div style={inputGroup}><label style={labelS}>Village</label><input value={f.village} disabled={!canCreate} onChange={e => setF({ ...f, village: e.target.value })} style={inputStyle} /></div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                    <button onClick={enregistrer} style={{ ...btnStyle, backgroundColor: '#2ecc71', width: '250px', fontWeight: 'bold', fontSize: '16px' }}>✔️ Enregistrer le Patient</button>
+                    <button onClick={() => setShowAddForm(false)} style={{ ...btnStyle, backgroundColor: '#95a5a6' }}>Annuler</button>
+                  </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
-                  <div style={inputGroup}><label style={labelS}>Téléphone 1</label><input value={f.tel1} onChange={e => setF({ ...f, tel1: e.target.value })} style={inputStyle} /></div>
-                  <div style={inputGroup}><label style={labelS}>Téléphone 2</label><input value={f.tel2} onChange={e => setF({ ...f, tel2: e.target.value })} style={inputStyle} /></div>
-                  <div style={inputGroup}><label style={labelS}>Ville</label><input value={f.ville} onChange={e => setF({ ...f, ville: e.target.value })} style={inputStyle} /></div>
-                  <div style={inputGroup}><label style={labelS}>S/Préfecture</label><input value={f.spref} onChange={e => setF({ ...f, spref: e.target.value })} style={inputStyle} /></div>
-                  <div style={inputGroup}><label style={labelS}>Village</label><input value={f.village} disabled={!canCreate} onChange={e => setF({ ...f, village: e.target.value })} style={inputStyle} /></div>
-                </div>
-                {canCreate && (
-                  <button onClick={enregistrer} style={{ ...btnStyle, marginTop: '20px', backgroundColor: '#2ecc71', width: '200px', fontWeight: 'bold' }}>Enregistrer Patient</button>
-                )}
-                {!canCreate && (
-                  <div style={{ marginTop: '20px', color: '#e74c3c', fontStyle: 'italic' }}>🚫 Vous n'avez pas les droits pour créer un patient.</div>
-                )}
-              </div>
+              )}
 
               <div style={{ ...cardStyle, marginTop: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', alignItems: 'center' }}>
@@ -472,8 +537,8 @@ export default function PatientsView() {
                   <tbody>
                     {paginated.map(p => (
                       <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                        <td style={tdStyle}><strong>{p.numero_carnet}</strong></td>
-                        <td style={tdStyle}>{p.nom_prenoms}</td>
+                        <td style={{ ...tdStyle, textTransform: 'uppercase' }}><strong>{p.numero_carnet}</strong></td>
+                        <td style={{ ...tdStyle, textTransform: 'uppercase' }}>{p.nom_prenoms}</td>
                         <td style={tdStyle}>{p.telephone}</td>
                         <td style={tdStyle}><button onClick={() => voirPatient(p)} style={btnSmall}>Voir le patient</button></td>
                       </tr>
@@ -488,7 +553,7 @@ export default function PatientsView() {
               </div>
             </>
           )}
-        </>
+        </div>
       ) : (
         <div style={{ ...cardStyle, borderTop: '5px solid #3498db' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -501,10 +566,10 @@ export default function PatientsView() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', background: '#f8f9fa', padding: '20px', borderRadius: '12px', border: '1px solid #dee2e6' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', background: '#f8f9fa', padding: '20px', borderRadius: '12px', border: '1px solid #dee2e6', textTransform: 'uppercase' }}>
             <div><span style={labelTag}>IDENTITÉ</span><br /><strong>{selectedPatient.numero_carnet}</strong><br />{selectedPatient.nom_prenoms} ({selectedPatient.sexe})</div>
-            <div><span style={labelTag}>CONTACTS</span><br />📞 {selectedPatient.telephone}<br />📱 {selectedPatient.telephone2 || 'N/A'}</div>
-            <div><span style={labelTag}>LOCALISATION</span><br />📍 {selectedPatient.ville}<br />🏠 {selectedPatient.sous_prefecture} / {selectedPatient.village}</div>
+            <div style={{ textTransform: 'none' }}><span style={labelTag}>CONTACTS</span><br />📞 {selectedPatient.telephone}<br />📱 {selectedPatient.telephone2 || 'N/A'}</div>
+            <div style={{ textTransform: 'none' }}><span style={labelTag}>LOCALISATION</span><br />📍 {selectedPatient.ville}<br />🏠 {selectedPatient.sous_prefecture} / {selectedPatient.village}</div>
           </div>
 
           {/* SECTION ASSURANCE */}
@@ -570,7 +635,7 @@ export default function PatientsView() {
             )}
           </div>
 
-          <Protect code="CONSULT_HISTORY">
+          <Protect code="consultation" action="VIEW">
             <h3 style={{ marginTop: '40px', borderBottom: '2px solid #3498db', paddingBottom: '10px', color: '#2c3e50' }}>📜 Historique des Opérations</h3>
             <table style={tableStyle}>
               <thead>
@@ -629,15 +694,15 @@ export default function PatientsView() {
               <h2 style={{ borderBottom: '2px solid #f1c40f', paddingBottom: '10px' }}>Mettre à jour le dossier patient</h2>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '15px', marginTop: '20px' }}>
-                <div style={inputGroup}><label style={labelS}>N° Carnet</label><input value={selectedPatient.numero_carnet} onChange={e => setSelectedPatient({ ...selectedPatient, numero_carnet: e.target.value })} style={inputStyle} /></div>
-                <div style={inputGroup}><label style={labelS}>Nom et Prénoms</label><input value={selectedPatient.nom_prenoms} onChange={e => setSelectedPatient({ ...selectedPatient, nom_prenoms: e.target.value })} style={inputStyle} /></div>
+                <div style={inputGroup}><label style={labelS}>N° Carnet</label><input value={selectedPatient.numero_carnet} onChange={e => setSelectedPatient({ ...selectedPatient, numero_carnet: e.target.value.toUpperCase() })} style={inputStyle} /></div>
+                <div style={inputGroup}><label style={labelS}>Nom et Prénoms</label><input value={selectedPatient.nom_prenoms} onChange={e => setSelectedPatient({ ...selectedPatient, nom_prenoms: e.target.value.toUpperCase() })} style={inputStyle} /></div>
                 <div style={inputGroup}><label style={labelS}>Sexe</label><select value={selectedPatient.sexe} onChange={e => setSelectedPatient({ ...selectedPatient, sexe: e.target.value })} style={inputStyle}><option value="Homme">Homme</option><option value="Femme">Femme</option></select></div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginTop: '15px' }}>
                 <div style={inputGroup}><label style={labelS}>Date de Naissance</label><input type="date" value={selectedPatient.date_naissance} onChange={e => setSelectedPatient({ ...selectedPatient, date_naissance: e.target.value })} style={inputStyle} /></div>
-                <div style={inputGroup}><label style={labelS}>Téléphone 1</label><input value={selectedPatient.telephone} onChange={e => setSelectedPatient({ ...selectedPatient, telephone: e.target.value })} style={inputStyle} /></div>
-                <div style={inputGroup}><label style={labelS}>Téléphone 2</label><input value={selectedPatient.telephone2} onChange={e => setSelectedPatient({ ...selectedPatient, telephone2: e.target.value })} style={inputStyle} /></div>
+                <div style={inputGroup}><label style={labelS}>Téléphone 1</label><input value={selectedPatient.telephone} onChange={e => setSelectedPatient({ ...selectedPatient, telephone: formatPhoneNumber(e.target.value) })} style={inputStyle} /></div>
+                <div style={inputGroup}><label style={labelS}>Téléphone 2</label><input value={selectedPatient.telephone2} onChange={e => setSelectedPatient({ ...selectedPatient, telephone2: formatPhoneNumber(e.target.value) })} style={inputStyle} /></div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginTop: '15px' }}>
@@ -907,15 +972,15 @@ export default function PatientsView() {
 }
 
 // STYLES CSS
-const cardStyle: React.CSSProperties = { background: 'white', padding: '25px', borderRadius: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
-const inputStyle: React.CSSProperties = { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', boxSizing: 'border-box', fontSize: '14px' };
-const inputGroup: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '5px' };
-const labelS: React.CSSProperties = { fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d' };
-const labelTag: React.CSSProperties = { fontSize: '10px', color: '#3498db', fontWeight: 'bold', letterSpacing: '1px' };
-const btnStyle: React.CSSProperties = { padding: '12px 20px', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', transition: '0.3s' };
-const btnSmall: React.CSSProperties = { background: '#3498db', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: '500' };
-const pageBtn: React.CSSProperties = { padding: '8px 15px', border: '1px solid #ddd', borderRadius: '5px', cursor: 'pointer', background: 'white' };
-const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', marginTop: '10px' };
-const tdStyle: React.CSSProperties = { padding: '15px', textAlign: 'left' };
-const overlayStyle: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(44, 62, 80, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' };
-const popupStyle: React.CSSProperties = { background: 'white', padding: '40px', borderRadius: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' };
+const cardStyle: CSSProperties = { background: 'white', padding: '25px', borderRadius: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
+const inputStyle: CSSProperties = { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', boxSizing: 'border-box', fontSize: '14px' };
+const inputGroup: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '5px' };
+const labelS: CSSProperties = { fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d' };
+const labelTag: CSSProperties = { fontSize: '10px', color: '#3498db', fontWeight: 'bold', letterSpacing: '1px' };
+const btnStyle: CSSProperties = { padding: '12px 20px', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', transition: '0.3s' };
+const btnSmall: CSSProperties = { background: '#3498db', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: '500' };
+const pageBtn: CSSProperties = { padding: '8px 15px', border: '1px solid #ddd', borderRadius: '5px', cursor: 'pointer', background: 'white' };
+const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', marginTop: '10px' };
+const tdStyle: CSSProperties = { padding: '15px', textAlign: 'left' };
+const overlayStyle: CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(44, 62, 80, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' };
+const popupStyle: CSSProperties = { background: 'white', padding: '40px', borderRadius: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' };

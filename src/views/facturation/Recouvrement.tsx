@@ -60,6 +60,11 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
     const [history, setHistory] = useState<RecoveryHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
 
+    // DATE FILTER (Default Today)
+    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [showAllDates, setShowAllDates] = useState(false);
+
     // PREVIEW STATE
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
 
@@ -71,7 +76,7 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
     useEffect(() => {
         if (view === 'LIST') loadCredits();
         else loadHistory();
-    }, [view]);
+    }, [view, startDate, endDate]);
 
     // --- LOAD DATA ---
 
@@ -91,8 +96,9 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
                 LEFT JOIN personnel pers ON v.personnel_id = pers.id
                 LEFT JOIN app_utilisateurs u ON v.personnel_id = u.id AND pers.id IS NULL
                 WHERE v.reste_a_payer > 1 AND v.statut = 'CREDIT'
+                ${showAllDates ? '' : 'AND DATE(v.date_vente) BETWEEN ? AND ?'}
                 ORDER BY v.date_vente ASC
-            `);
+            `, showAllDates ? [] : [startDate, endDate]);
 
             const groups: { [key: string]: DebiteurGroup } = {};
 
@@ -124,6 +130,12 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
         } catch (e) { console.error(e); } finally { setLoading(false); }
     };
 
+    const handleSettleAll = async () => {
+        if (!selectedDebiteur) return;
+        setPaymentAmount(selectedDebiteur.total_dette.toString());
+        setPaymentRef("SOLDE_GLOBAL_" + new Date().getTime());
+    };
+
     const loadHistory = async () => {
         try {
             setLoading(true);
@@ -133,9 +145,9 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
                 FROM caisse_mouvements cm
                 LEFT JOIN app_utilisateurs u ON cm.user_id = u.id
                 WHERE cm.type = 'RECOUVREMENT'
+                AND DATE(cm.date_mouvement) BETWEEN ? AND ?
                 ORDER BY cm.date_mouvement DESC
-                LIMIT 50
-            `);
+            `, [startDate, endDate]);
             setHistory(res);
         } catch (e) { console.error(e); } finally { setLoading(false); }
     };
@@ -644,6 +656,125 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
         `;
     };
 
+    const imprimerPointCredits = async () => {
+        if (debiteurs.length === 0) return alert("Aucun crédit à afficher.");
+        try {
+            const company = await getCompanyInfo();
+            const dateStr = new Date().toLocaleString('fr-FR');
+            
+            const groupedByType = {
+                'PERSONNEL': debiteurs.filter(d => d.type === 'PERSONNEL'),
+                'ASSURANCE': debiteurs.filter(d => d.type === 'ASSURANCE'),
+                'PATIENT': debiteurs.filter(d => d.type === 'PATIENT')
+            };
+
+            const html = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Point des Crédits</title>
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; color: #333; }
+                        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #3498db; padding-bottom: 15px; }
+                        h1 { color: #2c3e50; margin: 0; }
+                        .summary { display: flex; justify-content: space-around; background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 30px; }
+                        .stat { text-align: center; }
+                        .stat-val { font-size: 20px; font-weight: bold; color: #e74c3c; }
+                        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+                        th { background: #3498db; color: white; padding: 12px; text-align: left; }
+                        td { padding: 10px; border-bottom: 1px solid #ddd; }
+                        .type-header { background: #ecf0f1; font-weight: bold; padding: 10px; font-size: 16px; color: #2c3e50; }
+                        .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #7f8c8d; }
+                        @media print { .no-print { display: none; } }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h1>${company.nom || 'CENTRE MEDICAL'}</h1>
+                        <p>${company.adresse || ''} | Tel: ${company.telephone || ''}</p>
+                        <h2>POINT GLOBAL DES CRÉDITS</h2>
+                        <p>Période : Du ${new Date(startDate).toLocaleDateString()} au ${new Date(endDate).toLocaleDateString()}</p>
+                        <p style="font-size: 12px;">Généré le: ${dateStr}</p>
+                    </div>
+
+                    <div class="summary">
+                        <div class="stat">
+                            <div>Total Personnel</div>
+                            <div class="stat-val">${groupedByType.PERSONNEL.reduce((acc, d) => acc + d.total_dette, 0).toLocaleString()} F</div>
+                        </div>
+                        <div class="stat">
+                            <div>Total Assurances</div>
+                            <div class="stat-val">${groupedByType.ASSURANCE.reduce((acc, d) => acc + d.total_dette, 0).toLocaleString()} F</div>
+                        </div>
+                        <div class="stat">
+                            <div>Total Patients</div>
+                            <div class="stat-val">${groupedByType.PATIENT.reduce((acc, d) => acc + d.total_dette, 0).toLocaleString()} F</div>
+                        </div>
+                        <div class="stat" style="border-left: 2px solid #ddd; padding-left: 20px;">
+                            <div>TOTAL GÉNÉRAL</div>
+                            <div class="stat-val" style="color: #c0392b; font-size: 24px;">${totalGlobal.toLocaleString()} F</div>
+                        </div>
+                    </div>
+
+                    ${Object.entries(groupedByType).map(([type, list]) => {
+                        if (list.length === 0) return '';
+                        return `
+                            <div class="type-header">${type}</div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Nom du Débiteur</th>
+                                        <th style="text-align: center;">Fiches</th>
+                                        <th style="text-align: right;">Total Dû</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${list.map(d => `
+                                        <tr>
+                                            <td>${d.nom}</td>
+                                            <td style="text-align: center;">${d.nb_dossiers}</td>
+                                            <td style="text-align: right; font-weight: bold;">${d.total_dette.toLocaleString()} F</td>
+                                        </tr>
+                                    `).join('')}
+                                    <tr style="background: #f9f9f9; font-weight: bold;">
+                                        <td colspan="2" style="text-align: right;">SOUS-TOTAL ${type} :</td>
+                                        <td style="text-align: right; color: #e74c3c;">${list.reduce((acc, d) => acc + d.total_dette, 0).toLocaleString()} F</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        `;
+                    }).join('')}
+
+                    <div class="footer">
+                        Fin du rapport - ${company.nom || 'Centre Médical'}
+                    </div>
+                </body>
+                </html>
+            `;
+
+            const iframe = document.createElement('iframe');
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+
+            const doc = iframe.contentWindow?.document;
+            if (doc) {
+                doc.open();
+                doc.write(html);
+                doc.close();
+                iframe.contentWindow?.focus();
+                setTimeout(() => {
+                    iframe.contentWindow?.print();
+                    document.body.removeChild(iframe);
+                }, 500);
+            }
+        } catch (e) { console.error(e); alert("Erreur impression rapport"); }
+    };
+
     const imprimerRecuRecouvrement = async (data: any) => {
         const company = await getCompanyInfo();
         const content = generateReceiptHtml(data, company);
@@ -672,7 +803,7 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
 
     // --- RENDER ---
 
-    const filteredDebiteurs = debiteurs.filter(d => d.nom.toLowerCase().includes(searchTerm.toLowerCase()));
+    const filteredDebiteurs = debiteurs.filter(d => (d?.nom?.toString().toLowerCase() || "").includes(searchTerm.toLowerCase()));
     const totalGlobal = filteredDebiteurs.reduce((acc, d) => acc + d.total_dette, 0);
 
     return (
@@ -696,6 +827,46 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
 
             {view === 'LIST' ? (
                 <Protect code="RECOUVREMENT_COLLECT">
+                    {/* DATE FILTER UI FOR LIST */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #eee' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <label style={{ fontWeight: 'bold', color: '#7f8c8d' }}>Période du :</label>
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={e => setStartDate(e.target.value)}
+                                style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <label style={{ fontWeight: 'bold', color: '#7f8c8d' }}>au :</label>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={e => setEndDate(e.target.value)}
+                                style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                            />
+                        </div>
+                        <button
+                            onClick={loadCredits}
+                            style={{ padding: '8px 15px', background: '#3498db', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}
+                        >
+                            Actualiser
+                        </button>
+
+                        <button
+                            onClick={imprimerPointCredits}
+                            style={{ padding: '8px 15px', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        >
+                            <span>🖨️</span> Point des Crédits
+                        </button>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#2c3e50', fontWeight: 'bold', marginLeft: 'auto' }}>
+                            <input type="checkbox" checked={showAllDates} onChange={e => setShowAllDates(e.target.checked)} />
+                            Afficher TOUT (Historique complet)
+                        </label>
+                    </div>
+
                     <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
                         <div style={{ background: 'white', padding: '10px 20px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '10px', flex: 1, boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
                             <span>🔍</span>
@@ -723,6 +894,34 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
             ) : (
                 <Protect code="RECOUVREMENT_HISTORY">
                     <div style={{ flex: 1, overflowY: 'auto', background: 'white', borderRadius: '15px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+                        {/* DATE FILTER UI */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #eee' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <label style={{ fontWeight: 'bold', color: '#7f8c8d' }}>Période du :</label>
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={e => setStartDate(e.target.value)}
+                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                                />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <label style={{ fontWeight: 'bold', color: '#7f8c8d' }}>au :</label>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={e => setEndDate(e.target.value)}
+                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                                />
+                            </div>
+                            <button
+                                onClick={loadHistory} // Refresh button (optional since useEffect handles it, but good for UX)
+                                style={{ padding: '8px 15px', background: '#3498db', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}
+                            >
+                                Actualiser
+                            </button>
+                        </div>
+
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr style={{ background: '#f8f9fa', color: '#7f8c8d', fontSize: '13px', textAlign: 'left' }}>
@@ -795,9 +994,10 @@ export default function RecouvrementView({ currentUser }: { currentUser?: any })
                                 <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)} placeholder="Ref..." style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '10px' }}>
-                                <div style={{ display: 'flex', gap: '10px' }}>
-                                    <button onClick={handlePreview} style={{ flex: 1, padding: '15px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>VALIDER & APERÇU</button>
-                                </div>
+                                <button onClick={handleSettleAll} style={{ flex: 1, padding: '12px', background: '#f39c12', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '10px' }}>💰 Solder tout le compte</button>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button onClick={handlePreview} style={{ flex: 1, padding: '15px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>VALIDER & APERÇU</button>
                             </div>
                         </div>
                     </div>

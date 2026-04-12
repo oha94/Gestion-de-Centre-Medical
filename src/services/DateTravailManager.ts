@@ -8,7 +8,16 @@ export class DateTravailManager {
         try {
             const db = await getDb();
             const res = await db.select<any[]>("SELECT date_systeme_actuelle FROM app_parametres_app LIMIT 1");
-            return res[0]?.date_systeme_actuelle || new Date().toISOString().split('T')[0];
+            const rawDate = res[0]?.date_systeme_actuelle || new Date().toISOString().split('T')[0];
+            
+            // Normalize to ISO (YYYY-MM-DD)
+            if (rawDate && rawDate.includes('/')) {
+                const parts = rawDate.split('/');
+                if (parts.length === 3 && parts[2].length === 4) {
+                    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                }
+            }
+            return rawDate;
         } catch (e) {
             console.error("Erreur getDateTravail:", e);
             return new Date().toISOString().split('T')[0];

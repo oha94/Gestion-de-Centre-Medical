@@ -107,7 +107,10 @@ export const PermissionSeeder = {
                 { code: 'PARAM_VIEW', libelle: 'Vue Paramètres', categorie: 'MODULE_PARAMETRES', icone: '⚙️', ordre: 10 },
                 { code: 'PARAM_USERS', libelle: 'Gestion Utilisateurs', categorie: 'MODULE_PARAMETRES', icone: '👤', ordre: 20 },
                 { code: 'PARAM_ROLES', libelle: 'Gestion Rôles', categorie: 'MODULE_PARAMETRES', icone: '🔑', ordre: 30 },
-                { code: 'PARAM_DB', libelle: 'Config BDD', categorie: 'MODULE_PARAMETRES', icone: '💾', ordre: 40 }
+                { code: 'PARAM_DB', libelle: 'Config BDD', categorie: 'MODULE_PARAMETRES', icone: '💾', ordre: 40 },
+                
+                // --- SUIVI COMPTES ---
+                { code: 'suivi_comptes', libelle: 'Suivi des Comptes', categorie: 'MODULE_FACTURATION', icone: '📒', ordre: 100 }
             ];
 
             // --- 3. INSERT / UPDATE ---

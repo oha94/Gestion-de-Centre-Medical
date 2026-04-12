@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../lib/db";
 
 interface LoginProps {
@@ -305,20 +305,20 @@ const errorStyle: React.CSSProperties = {
     justifyContent: "center"
 };
 
-const footerStyle: React.CSSProperties = {
+const footerStyle: CSSProperties = {
     marginTop: "40px",
     paddingTop: "24px",
     borderTop: "1px solid #ecf0f1",
     textAlign: "center"
 };
 
-const copyrightStyle: React.CSSProperties = {
+const copyrightStyle: CSSProperties = {
     fontSize: "13px",
     color: "#95a5a6",
     fontWeight: "500"
 };
 
-const sloganStyle: React.CSSProperties = {
+const sloganStyle: CSSProperties = {
     fontSize: "12px",
     color: "#bdc3c7",
     marginTop: "8px",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../../lib/db";
 
 // Définition de l'interface pour une permission
@@ -348,8 +348,8 @@ export default function RolesPermissions() {
                               </label>
                             </div>
 
-                            {/* GRANULAR CONTROLS - Only for specific modules/views */}
-                            {hasAccess && ['PATIENTS_VIEW', 'PARAM_USERS', 'PARAM_ROLES'].includes(menu.code) && (
+                            {/* GRANULAR CONTROLS - Now for ALL modules */}
+                            {hasAccess && (
                               <div style={{ display: 'flex', gap: '20px', borderLeft: '1px solid #eee', paddingLeft: '20px' }}>
                                 <PermissionToggle
                                   label="Ajouter"
@@ -409,6 +409,6 @@ const PermissionToggle = ({ label, checked, onChange, color }: any) => (
   </label>
 );
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box'
 };

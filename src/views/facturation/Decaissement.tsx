@@ -91,10 +91,14 @@ export default function Decaissement({ currentUser }: { currentUser?: any }) {
                 alert("Modification enregistrée !");
             } else {
                 // INSERT
+                const [lastRes] = await db.select<any[]>('SELECT MAX(id) as maxId FROM caisse_mouvements');
+                const nextId = (lastRes?.maxId || 0) + 1;
+                const newRef = `DEC-${nextId}`;
+
                 await db.execute(`
                     INSERT INTO caisse_mouvements (type, montant, date_mouvement, motif, user_id, mode_paiement, reference, autorise_par, beneficiaire)
                     VALUES ('DECAISSEMENT', ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [amount, date + ' ' + new Date().toLocaleTimeString('fr-FR', { hour12: false }), motif, currentUser?.id || 0, mode, `DEC-${Date.now()}`, autorisePar, beneficiaire]);
+                `, [amount, date + ' ' + new Date().toLocaleTimeString('fr-FR', { hour12: false }), motif, currentUser?.id || 0, mode, newRef, autorisePar, beneficiaire]);
                 alert("Décaissement validé !");
             }
 

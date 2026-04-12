@@ -1,6 +1,7 @@
 import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../../lib/db";
 import { Protect } from "../../components/Protect";
+import { generateTicketHTML as generateGlobalTicket } from "../../utils/ticketGenerator";
 
 export default function ListeVentes({ softwareDate, setView, currentUser }: { softwareDate: string, setView: (v: string) => void, currentUser?: any }) {
     const [ventes, setVentes] = useState<any[]>([]);
@@ -70,8 +71,9 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                 SELECT v.*, 
                        p.nom_prenoms as patient_nom, 
                        p.numero_carnet as patient_carnet,
+                       p.taux_couverture,
                        a.nom as assurance_nom,
-                       pers.nom_prenoms as personnel_nom,
+                       COALESCE(v.personnel_nom, pers.nom_prenoms) as personnel_nom,
                        u.nom_complet as operateur_nom
                 FROM ventes v
                 LEFT JOIN patients p ON v.patient_id = p.id
@@ -96,14 +98,49 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
         try {
             const db = await getDb();
 
+            // 1. Restauration stock médicaments
             if (vente.type_vente === 'MEDICAMENT' && vente.article_id) {
                 const match = vente.acte_libelle.match(/\(x(\d+)\)/);
                 const qte = match ? parseInt(match[1]) : 1;
                 await db.execute("UPDATE stock_articles SET quantite_stock = quantite_stock + ? WHERE id = ?", [qte, vente.article_id]);
             }
 
-            if (vente.type_vente === 'HOSPITALISATION' && vente.article_id) {
-                await db.execute("UPDATE admissions SET statut = 'en_cours', date_sortie = NULL WHERE id = ?", [vente.article_id]);
+            // 2. Restauration hospitalisation
+            // Détecter les items d'hospitalisation par type OU par libellé
+            const isHospiItem = vente.type_vente === 'HOSPITALISATION' 
+                || vente.acte_libelle?.includes('SÉJOUR') 
+                || vente.acte_libelle?.includes('FORFAIT AMI') 
+                || vente.acte_libelle?.includes('VISITE MÉDECIN')
+                || vente.acte_libelle?.includes('KITS CONSOMMABLES');
+
+            if (isHospiItem && (vente.patient_id || vente.article_id)) {
+                try {
+                    // Si on a l'ID précis (cas des nouvelles ventes corrigées), on l'utilise
+                    if (vente.article_id && vente.type_vente === 'HOSPITALISATION') {
+                        await db.execute("UPDATE admissions SET statut = 'en_cours', date_sortie = NULL WHERE id = ?", [vente.article_id]);
+                    } 
+                    // Sinon (Legacy), on cherche la dernière terminée, MAIS seulement si aucune n'est déjà en cours
+                    else if (vente.patient_id) {
+                        const activeCount = await db.select<any[]>("SELECT COUNT(*) as c FROM admissions WHERE patient_id = ? AND statut = 'en_cours'", [vente.patient_id]);
+                        if (activeCount[0].c === 0) {
+                            await db.execute(
+                                "UPDATE admissions SET statut = 'en_cours', date_sortie = NULL WHERE patient_id = ? AND statut = 'termine' ORDER BY id DESC LIMIT 1",
+                                [vente.patient_id]
+                            );
+                        }
+                    }
+
+                    // On s'assure que le lit est bien marqué occupé
+                    const admRes = await db.select<any[]>(
+                        "SELECT lit_id FROM admissions WHERE (id = ? OR patient_id = ?) AND statut = 'en_cours' ORDER BY id DESC LIMIT 1",
+                        [vente.article_id || 0, vente.patient_id || 0]
+                    );
+                    if (admRes.length > 0 && admRes[0].lit_id) {
+                        await db.execute("UPDATE lits SET statut = 'occupe' WHERE id = ?", [admRes[0].lit_id]);
+                    }
+                } catch (e) {
+                    console.error("Erreur restauration admission:", e);
+                }
             }
 
             // ARCHIVAGE AVANT SUPPRESSION
@@ -115,7 +152,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                 vente.patient_nom || 'Client',
                 vente.acte_libelle,
                 vente.montant_total,
-                isSilent ? "Modification Panier" : "Annulation Manuelle",
+                isSilent ? "Modification Panier" : (isHospiItem ? "Annulation Hospitalisation" : "Annulation Manuelle"),
                 currentUser?.id || 0
             ]);
 
@@ -123,6 +160,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
             return true;
         } catch (e) {
             console.error(e);
+            alert("Erreur technique de suppression: " + (e as any).message || String(e));
             return false;
         }
     };
@@ -173,14 +211,14 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
     const filtrerVentes = ventes.filter(v => {
         const search = searchTerm.toLowerCase();
         const matchSearch = (
-            v.acte_libelle?.toLowerCase().includes(search) ||
-            v.patient_nom?.toLowerCase().includes(search) ||
-            v.patient_carnet?.toLowerCase().includes(search) ||
-            v.numero_ticket?.toLowerCase().includes(search) ||
-            v.mode_paiement?.toLowerCase().includes(search) ||
-            v.part_patient.toString().includes(search) ||
-            v.assurance_nom?.toLowerCase().includes(search) ||
-            v.personnel_nom?.toLowerCase().includes(search)
+            (v.acte_libelle?.toString().toLowerCase() || "").includes(search) ||
+            (v.patient_nom?.toString().toLowerCase() || "").includes(search) ||
+            (v.patient_carnet?.toString().toLowerCase() || "").includes(search) ||
+            (v.numero_ticket?.toString().toLowerCase() || "").includes(search) ||
+            (v.mode_paiement?.toString().toLowerCase() || "").includes(search) ||
+            (v.part_patient?.toString() || "").includes(search) ||
+            (v.assurance_nom?.toString().toLowerCase() || "").includes(search) ||
+            (v.personnel_nom?.toString().toLowerCase() || "").includes(search)
         );
         const matchMode = !modeFilter || v.mode_paiement?.toLowerCase().includes(modeFilter.toLowerCase());
         const matchAssurance = !assuranceFilter || v.assurance_nom?.toLowerCase().includes(assuranceFilter.toLowerCase());
@@ -211,8 +249,8 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
 
     // Grouper par ticket pour l'affichage
     const tickets = filtrerVentes.reduce((acc: any, v) => {
-        // FIX: Group by Ticket AND Date to separate sales that might share a ticket number due to previous bugs
-        const tKey = (v.numero_ticket || `ID-${v.id}`) + '_' + (v.date_vente || v.created_at);
+        // Group purely by Ticket Number if available to avoid splitting multi-item sales
+        const tKey = v.numero_ticket || `ID-${v.id}`;
         const tLabel = v.numero_ticket || `ID-${v.id}`;
 
         if (!acc[tKey]) {
@@ -222,6 +260,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                 totalPatient: 0,
                 totalCredit: 0,
                 totalVente: 0,
+                totalRemise: 0,
                 date: parseDateSafe(v.date_vente) || parseDateSafe(v.created_at) || new Date(),
                 dateFormatted,
                 heure,
@@ -229,6 +268,8 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                 carnet: v.patient_carnet,
                 mode: v.mode_paiement,
                 assurance: v.assurance_nom,
+                taux_couverture: v.taux_couverture,
+                societe_nom: v.societe_nom,
                 personnel: v.personnel_nom,
                 operateur: v.operateur_nom,
                 t: tLabel, // Display Label
@@ -240,6 +281,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
         acc[tKey].totalPatient += v.part_patient;
         acc[tKey].totalCredit += v.part_assureur || 0;
         acc[tKey].totalVente += v.montant_total;
+        acc[tKey].totalRemise += Math.max(0, v.montant_total - v.part_patient - (v.part_assureur || 0));
         return acc;
     }, {});
 
@@ -247,68 +289,45 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
 
     // --- PRINTING UTILS ---
     const generateTicketHTML = (ticket: any) => {
-        const dateStr = new Date(ticket.date).toLocaleString('fr-FR');
-        const itemsRows = ticket.items.map((it: any) => `
-            <tr>
-                <td>${it.acte_libelle}</td>
-                <td class="right">${it.montant_total.toLocaleString()} F</td>
-            </tr>
-        `).join('');
-
-        return `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Ticket # ${ticket.t}</title>
-                <style>
-                    body { margin: 0; padding: 10px; font-family: 'Courier New', monospace; font-size: 12px; width: 300px; }
-                    .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-                    .title { font-weight: bold; font-size: 16px; }
-                    .subtitle { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
-                    .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
-                    .bold { font-weight: bold; }
-                    .section { margin-bottom: 10px; border-bottom: 1px solid #000; padding-bottom: 5px; }
-                    .footer { margin-top: 15px; border-top: 1px dashed #000; padding-top: 10px; text-align: center; }
-                    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-                    td { padding: 2px 0; vertical-align: top; }
-                    .right { text-align: right; }
-                </style>
-            </head>
-            <body>
-                <div class="header">
-                    <div class="title">CENTRE MÉDICAL</div>
-                    <div class="subtitle">TICKET DE CAISSE</div>
-                    <div>N°: ${ticket.t}</div>
-                    <div>${dateStr}</div>
-                </div>
-                
-                <div class="section">
-                    <div class="row"><span>Patient:</span> <span class="bold">${ticket.patient || 'Client De Passage'}</span></div>
-                    ${ticket.carnet ? `<div class="row"><span>Carnet:</span> <span>${ticket.carnet}</span></div>` : ''}
-                    ${ticket.assurance ? `<div class="row"><span>Assurance:</span> <span>${ticket.assurance}</span></div>` : ''}
-                     <div class="row"><span>Mode:</span> <span>${ticket.mode || '-'}</span></div>
-                     <div class="row"><span>Vendeur:</span> <span>${ticket.personnel || ticket.operateur || '-'}</span></div>
-                </div>
-
-                <div class="section">
-                    <table>
-                        ${itemsRows}
-                    </table>
-                </div>
-
-                <div class="section">
-                    <div class="row"><span class="bold">TOTAL:</span> <span class="bold" style="font-size:14px">${ticket.totalVente.toLocaleString()} F</span></div>
-                    ${ticket.totalCredit > 0 ? `<div class="row"><span>Part Assurance:</span> <span>${ticket.totalCredit.toLocaleString()} F</span></div>` : ''}
-                    <div class="row"><span>Part Patient:</span> <span class="bold">${ticket.totalPatient.toLocaleString()} F</span></div>
-                </div>
-
-                <div class="footer">
-                    <div>Merci de votre confiance !</div>
-                    <div>${currentUser?.nom_complet || ''}</div>
-                </div>
-            </body>
-            </html>
-        `;
+        const payload = {
+            entreprise: { nom_entreprise: 'CENTRE MÉDICAL', adresse: '', telephone: '' },
+            ticketNum: ticket.t,
+            dateVente: new Date(ticket.date),
+            patient: {
+                nom_prenoms: ticket.patient || ticket.personnel || 'Client De Passage',
+                numero_carnet: ticket.carnet,
+                nom_assurance: ticket.assurance,
+                taux_couverture: ticket.taux_couverture
+            },
+            personnel: {
+                nom_prenoms: ticket.personnel || ticket.operateur || '-'
+            },
+            caissier: currentUser?.nom_complet || 'Système',
+            items: ticket.items.map((it: any) => {
+                const match = it.acte_libelle ? it.acte_libelle.match(/\(x(\d+)\)/) : null;
+                const qte = match ? parseInt(match[1]) : 1;
+                const libelleBase = it.acte_libelle ? it.acte_libelle.replace(/\s\(x\d+\)$/, "").trim() : '';
+                return {
+                    libelle: libelleBase,
+                    categorie: it.type_vente || 'AUTRE',
+                    qte: qte,
+                    prixUnitaire: it.montant_total / qte,
+                    partPatientUnitaire: it.part_patient / qte // Use actual part_patient!
+                };
+            }),
+            totalBrut: ticket.totalVente,
+            totalRemise: ticket.totalRemise,
+            totalPartAssureur: ticket.totalCredit,
+            totalNetPatient: ticket.totalPatient,
+            paiement: {
+                montantVerse: ticket.totalPatient,
+                rendu: 0,
+                mode: ticket.mode || '-'
+            },
+            insForm: ticket.societe_nom ? { societeNom: ticket.societe_nom, matricule: '', numeroBon: ticket.societe_nom } : undefined
+        };
+        
+        return generateGlobalTicket(payload as any, '80mm');
     };
 
     const handlePreviewTicket = (ticket: any) => {
@@ -442,9 +461,9 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                             <th style={thS}>N°</th>
                             <th style={thS}>Date</th>
                             <th style={thS}>Opérateur</th>
-                            <th style={thS}>Assurance<br />Personnel</th>
-                            <th style={thS}>Total Vente</th>
-                            <th style={thS}>Net Crédit</th>
+                            <th style={thS}>Client</th>
+                            <th style={thS}>Total Brut</th>
+                            <th style={thS}>Remise</th>
                             <th style={thS}>Net Patient</th>
                             <th style={thS}>Mode</th>
                             <th style={{ ...thS, textAlign: 'center' }}>Détails</th>
@@ -466,13 +485,18 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                                     <td style={tdS}>{t.dateFormatted}<br /><span style={{ fontSize: '11px', color: '#95a5a6' }}>{t.heure}</span></td>
                                     <td style={tdS}>{t.operateur || '-'}</td>
                                     <td style={tdS}>
-                                        {t.assurance ? <span style={badgeS}>{t.assurance}</span> : '-'}<br />
-                                        <span style={{ fontSize: '11px', color: '#95a5a6' }}>{t.personnel || ''}</span>
+                                        <div style={{ fontWeight: 'bold', color: '#2c3e50' }}>{t.patient || t.personnel || 'Client de passage'}</div>
+                                        {t.assurance ? <span style={badgeS}>{t.assurance}</span> : null}
                                     </td>
                                     <td style={{ ...tdS, fontWeight: 'bold' }}>{t.totalVente.toLocaleString()} F</td>
-                                    <td style={{ ...tdS, color: '#e67e22' }}>{t.totalCredit > 0 ? t.totalCredit.toLocaleString() + ' F' : '-'}</td>
+                                    <td style={{ ...tdS, color: t.totalRemise > 0 ? '#e74c3c' : '#bdc3c7', fontWeight: t.totalRemise > 0 ? 'bold' : 'normal' }}>
+                                        {t.totalRemise > 0 ? `-${t.totalRemise.toLocaleString()} F` : '-'}
+                                    </td>
                                     <td style={{ ...tdS, color: '#27ae60', fontWeight: 'bold' }}>{t.totalPatient.toLocaleString()} F</td>
-                                    <td style={tdS}>{t.mode}</td>
+                                    <td style={tdS}>
+                                        <div style={{ fontSize: '12px' }}>{t.mode}</div>
+                                        {t.totalCredit > 0 && <div style={{ fontSize: '11px', color: '#e67e22', marginTop: '2px' }}>Assur: {t.totalCredit.toLocaleString()}F</div>}
+                                    </td>
                                     <td style={{ ...tdS, textAlign: 'center' }}>
                                         <button onClick={() => { setSelectedTicketDetails(t); setShowDetailsModal(true); }} style={{ ...actionBtn, background: '#3498db', color: 'white' }}>
                                             📄 Voir
@@ -481,10 +505,8 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                                     <td style={{ ...tdS, textAlign: 'center' }}>
                                         <div style={{ display: 'flex', gap: '5px', justifyContent: 'center' }}>
                                             {/* Vérification droit modification */}
-                                            <Protect code="VENTES_EDIT">
-                                                {!!currentUser?.can_edit && (
-                                                    <button onClick={() => modifierVenteFlow(t.t)} style={actionBtn} title="Modifier (Retour au Panier)">✏️</button>
-                                                )}
+                                            <Protect code="caisse_liste" action="UPDATE">
+                                                <button onClick={() => modifierVenteFlow(t.t)} style={actionBtn} title="Modifier (Retour au Panier)">✏️</button>
                                             </Protect>
 
                                             {/* Allow if undefined or true */}
@@ -494,16 +516,44 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                                                 </button>
                                             )}
 
-                                            <Protect code="VENTES_DELETE">
-                                                {!!currentUser?.can_delete && (
-                                                    <button onClick={async () => {
-                                                        if (confirm("🚨 ATTENTION : Suppression Définitive\n\nVoulez-vous vraiment supprimer ce ticket ?\n\n✅ Les articles seront remis en stock.\n✅ La vente sera archivée.")) {
-                                                            for (const v of t.items) await supprimerVenteAction(v, true);
-                                                            alert("🗑️ Vente supprimée et stock restauré avec succès.");
-                                                            chargerDonnees();
+                                            <Protect code="caisse_liste" action="DELETE">
+                                                <button onClick={async () => {
+                                                    // Détecter si le ticket contient des items d'hospitalisation
+                                                    const hospiItems = t.items.filter((v: any) => 
+                                                        v.type_vente === 'HOSPITALISATION' 
+                                                        || v.acte_libelle?.includes('SÉJOUR') 
+                                                        || v.acte_libelle?.includes('FORFAIT AMI') 
+                                                        || v.acte_libelle?.includes('VISITE MÉDECIN')
+                                                        || v.acte_libelle?.includes('KITS CONSOMMABLES')
+                                                    );
+                                                    const hasHospi = hospiItems.length > 0;
+
+                                                    const confirmMsg = hasHospi 
+                                                        ? `🏨 ATTENTION : VENTE LIÉE À UNE HOSPITALISATION\n\n` +
+                                                          `Ce ticket contient ${hospiItems.length} élément(s) d'hospitalisation :\n` +
+                                                          hospiItems.map((h: any) => `  • ${h.acte_libelle}`).join('\n') + `\n\n` +
+                                                          `En supprimant cette vente :\n` +
+                                                          `✅ Le dossier d'hospitalisation sera RÉOUVERT\n` +
+                                                          `✅ Le lit sera remis en "occupé"\n` +
+                                                          `✅ Les articles seront remis en stock\n` +
+                                                          `✅ La vente sera archivée\n\n` +
+                                                          `Confirmer la suppression ?`
+                                                        : "🚨 ATTENTION : Suppression Définitive\n\nVoulez-vous vraiment supprimer ce ticket ?\n\n✅ Les articles seront remis en stock.\n✅ La vente sera archivée.";
+
+                                                    if (confirm(confirmMsg)) {
+                                                        let allSuccess = true;
+                                                        for (const v of t.items) {
+                                                            const s = await supprimerVenteAction(v, true);
+                                                            if (!s) allSuccess = false;
                                                         }
-                                                    }} style={{ ...actionBtn, background: '#ffebee', color: '#e74c3c' }} title="Supprimer">🗑️</button>
-                                                )}
+                                                        if (allSuccess) {
+                                                            alert(hasHospi 
+                                                                ? "🏨 Vente d'hospitalisation supprimée !\n\n✅ Dossier d'hospitalisation réouvert.\n✅ Stock restauré." 
+                                                                : "🗑️ Vente supprimée et stock restauré avec succès.");
+                                                        }
+                                                        chargerDonnees();
+                                                    }
+                                                }} style={{ ...actionBtn, background: '#ffebee', color: '#e74c3c' }} title="Supprimer">🗑️</button>
                                             </Protect>
                                         </div>
                                     </td>
@@ -531,7 +581,7 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
 
                         <div style={{ marginBottom: '20px', background: '#f8f9fa', padding: '15px', borderRadius: '10px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                <div><strong>Patient:</strong> {selectedTicketDetails.patient || 'Client de passage'}</div>
+                                <div><strong>Client / Patient:</strong> {selectedTicketDetails.patient || selectedTicketDetails.personnel || 'Client de passage'}</div>
                                 <div><strong>Carnet:</strong> {selectedTicketDetails.carnet || '-'}</div>
                                 <div><strong>Opérateur:</strong> {selectedTicketDetails.operateur}</div>
                                 <div><strong>Mode:</strong> {selectedTicketDetails.mode}</div>
@@ -543,25 +593,36 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                                 <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
                                     <th style={{ padding: '8px' }}>Libellé</th>
                                     <th style={{ padding: '8px', textAlign: 'right' }}>Prix Total</th>
-                                    <th style={{ padding: '8px', textAlign: 'right' }}>Part Patient</th>
-                                    <th style={{ padding: '8px', textAlign: 'right' }}>Part Assurance</th>
+                                    <th style={{ padding: '8px', textAlign: 'right' }}>Remise</th>
+                                    <th style={{ padding: '8px', textAlign: 'right' }}>Assurance</th>
+                                    <th style={{ padding: '8px', textAlign: 'right' }}>Net (À Payer)</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {selectedTicketDetails.items.map((it: any) => (
-                                    <tr key={it.id} style={{ borderBottom: '1px solid #f8f9fa' }}>
-                                        <td style={{ padding: '8px' }}>{it.acte_libelle}</td>
-                                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>{it.montant_total.toLocaleString()}</td>
-                                        <td style={{ padding: '8px', textAlign: 'right', color: '#27ae60' }}>{it.part_patient.toLocaleString()}</td>
-                                        <td style={{ padding: '8px', textAlign: 'right', color: '#e67e22' }}>{it.part_assureur.toLocaleString()}</td>
-                                    </tr>
-                                ))}
+                                {selectedTicketDetails.items.map((it: any) => {
+                                    const remise = Math.max(0, it.montant_total - (it.part_patient || 0) - (it.part_assureur || 0));
+                                    return (
+                                        <tr key={it.id} style={{ borderBottom: '1px solid #f8f9fa' }}>
+                                            <td style={{ padding: '8px' }}>{it.acte_libelle}</td>
+                                            <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>{it.montant_total.toLocaleString()}</td>
+                                            <td style={{ padding: '8px', textAlign: 'right', color: remise > 0 ? '#e74c3c' : '#bdc3c7' }}>{remise > 0 ? `-${remise.toLocaleString()}` : '-'}</td>
+                                            <td style={{ padding: '8px', textAlign: 'right', color: '#e67e22' }}>{it.part_assureur.toLocaleString()}</td>
+                                            <td style={{ padding: '8px', textAlign: 'right', color: '#27ae60', fontWeight: 'bold' }}>{it.part_patient.toLocaleString()}</td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
 
                         <div style={{ textAlign: 'right', fontSize: '18px' }}>
-                            <div>Total Vente: <strong>{selectedTicketDetails.totalVente.toLocaleString()} F</strong></div>
-                            <div style={{ color: '#27ae60' }}>Net Payé: <strong>{selectedTicketDetails.totalPatient.toLocaleString()} F</strong></div>
+                            <div>Total Brut: <strong>{selectedTicketDetails.totalVente.toLocaleString()} F</strong></div>
+                            {selectedTicketDetails.totalRemise > 0 && (
+                                <div style={{ color: '#e74c3c' }}>Remise: <strong>- {selectedTicketDetails.totalRemise.toLocaleString()} F</strong></div>
+                            )}
+                            {selectedTicketDetails.totalCredit > 0 && (
+                                <div style={{ color: '#e67e22' }}>Part Assurance: <strong>{selectedTicketDetails.totalCredit.toLocaleString()} F</strong></div>
+                            )}
+                            <div style={{ color: '#27ae60' }}>Net à Payer: <strong>{selectedTicketDetails.totalPatient.toLocaleString()} F</strong></div>
                         </div>
 
                         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -584,10 +645,18 @@ export default function ListeVentes({ softwareDate, setView, currentUser }: { so
                             <span style={{ fontWeight: 'bold' }}>Aperçu Ticket (80mm)</span>
                             <button onClick={() => setPreviewHtml(null)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '16px' }}>✕</button>
                         </div>
-                        <div style={{ flex: 1, background: 'white', overflow: 'hidden', display: 'flex', justifyContent: 'center', padding: '20px', overflowY: 'auto' }}>
+                        <div style={{ flex: 1, background: '#e0e0e0', display: 'flex', justifyContent: 'center', padding: '20px', overflowY: 'auto' }}>
                             <iframe
                                 srcDoc={previewHtml}
-                                style={{ width: '80mm', height: '100%', border: 'none', background: 'white', boxShadow: '0 0 10px rgba(0,0,0,0.5)' }}
+                                style={{ 
+                                    width: '80mm', 
+                                    height: 'min-content', 
+                                    minHeight: '120mm',
+                                    border: 'none', 
+                                    background: 'white', 
+                                    boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+                                    borderRadius: '2px'
+                                }}
                                 title="Ticket Preview"
                             />
                         </div>

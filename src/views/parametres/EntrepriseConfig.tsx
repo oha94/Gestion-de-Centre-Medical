@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, CSSProperties } from "react";
 import { getDb } from "../../lib/db";
 
 export default function EntrepriseConfig() {
@@ -37,8 +37,11 @@ export default function EntrepriseConfig() {
       await db.execute("ALTER TABLE app_parametres_entreprise ADD COLUMN id_famille_personnel INTEGER;");
       console.log("✅ Column id_famille_personnel added.");
     } catch (e: any) {
-      // Ignore "duplicate column name" error (code 1 or similar depending on SQLite wrapper)
-      console.log("ℹ️ Column check:", e);
+      // Silence duplicate column error
+      const msg = String(e).toLowerCase();
+      if (!msg.includes("duplicate column") && !msg.includes("already exists")) {
+        console.warn("⚠️ Column check notice:", e);
+      }
     }
   };
 
@@ -470,14 +473,14 @@ export default function EntrepriseConfig() {
 }
 
 // Styles
-const sectionStyle: React.CSSProperties = {
+const sectionStyle: CSSProperties = {
   background: '#f8f9fa',
   padding: '20px',
   borderRadius: '10px',
   border: '1px solid #ecf0f1'
 };
 
-const sectionTitleStyle: React.CSSProperties = {
+const sectionTitleStyle: CSSProperties = {
   margin: '0 0 15px 0',
   color: '#2c3e50',
   fontSize: '16px',
@@ -485,13 +488,13 @@ const sectionTitleStyle: React.CSSProperties = {
   paddingBottom: '8px'
 };
 
-const formGridStyle: React.CSSProperties = {
+const formGridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '1fr 1fr',
   gap: '15px'
 };
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   display: 'block',
   marginBottom: '5px',
   fontSize: '13px',
@@ -499,7 +502,7 @@ const labelStyle: React.CSSProperties = {
   color: '#555'
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: '100%',
   padding: '10px',
   border: '1px solid #ddd',
