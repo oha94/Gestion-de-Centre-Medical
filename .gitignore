@@ -42,3 +42,7 @@ inspect_*.js
 investigate_*.js
 check_*.ts
 build_errors*.txt
+
+src-tauri/target_dev/
+src-tauri/target/
+scratch*
